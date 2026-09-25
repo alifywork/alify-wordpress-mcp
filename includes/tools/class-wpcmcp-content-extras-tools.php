@@ -351,4 +351,147 @@ class WPCMCP_Content_Extras_Tools {
 
     private static function list_acf_field_groups() {
         if ( ! function_exists( 'acf_get_field_groups' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
-        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidd
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot inspect ACF field groups.' );
+        $items = array();
+        foreach ( acf_get_field_groups() as $group ) $items[] = array( 'key' => $group['key'], 'title' => $group['title'], 'active' => ! empty( $group['active'] ), 'menu_order' => isset( $group['menu_order'] ) ? (int) $group['menu_order'] : 0 );
+        return array( 'field_groups' => $items );
+    }
+
+    private static function get_acf_field_group( array $args ) {
+        if ( ! function_exists( 'acf_get_field_group' ) || ! function_exists( 'acf_get_fields' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot inspect ACF field groups.' );
+        $key = isset( $args['key'] ) ? sanitize_text_field( $args['key'] ) : '';
+        $group = acf_get_field_group( $key );
+        if ( ! $group ) return new WP_Error( 'not_found', 'ACF field group not found.' );
+        $fields = acf_get_fields( $group );
+        return array( 'group' => $group, 'fields' => $fields ? $fields : array() );
+    }
+
+    private static function acf_option_pages() {
+        if ( ! function_exists( 'acf_get_options_pages' ) ) return array();
+        $pages = acf_get_options_pages();
+        if ( ! is_array( $pages ) ) return array();
+        $normalized = array();
+        foreach ( $pages as $slug => $page ) {
+            if ( ! is_array( $page ) ) continue;
+            if ( empty( $page['menu_slug'] ) ) $page['menu_slug'] = sanitize_key( $slug );
+            if ( ! isset( $page['post_id'] ) || '' === (string) $page['post_id'] ) $page['post_id'] = 'options';
+            $normalized[] = $page;
+        }
+        return $normalized;
+    }
+
+    private static function list_acf_option_pages() {
+        if ( ! function_exists( 'acf_get_options_pages' ) ) return new WP_Error( 'acf_options_unavailable', 'ACF option pages are not available.' );
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot inspect ACF option pages.' );
+        $items = array();
+        foreach ( self::acf_option_pages() as $page ) {
+            $capability = isset( $page['capability'] ) ? sanitize_key( $page['capability'] ) : 'edit_posts';
+            if ( $capability && ! current_user_can( $capability ) ) continue;
+            $items[] = array(
+                'menu_slug'   => sanitize_key( $page['menu_slug'] ),
+                'page_title'  => isset( $page['page_title'] ) ? sanitize_text_field( $page['page_title'] ) : '',
+                'menu_title'  => isset( $page['menu_title'] ) ? sanitize_text_field( $page['menu_title'] ) : '',
+                'post_id'     => (string) $page['post_id'],
+                'parent_slug' => isset( $page['parent_slug'] ) ? sanitize_text_field( $page['parent_slug'] ) : '',
+                'capability'  => $capability,
+            );
+        }
+        return array( 'option_pages' => $items );
+    }
+
+    private static function find_acf_field_in_fields( $fields, $selector ) {
+        if ( ! is_array( $fields ) ) return false;
+        foreach ( $fields as $field ) {
+            if ( ! is_array( $field ) ) continue;
+            if ( ( isset( $field['key'] ) && $selector === (string) $field['key'] ) || ( isset( $field['name'] ) && $selector === (string) $field['name'] ) ) return $field;
+            if ( ! empty( $field['sub_fields'] ) ) {
+                $match = self::find_acf_field_in_fields( $field['sub_fields'], $selector );
+                if ( $match ) return $match;
+            }
+            if ( ! empty( $field['layouts'] ) && is_array( $field['layouts'] ) ) {
+                foreach ( $field['layouts'] as $layout ) {
+                    if ( empty( $layout['sub_fields'] ) ) continue;
+                    $match = self::find_acf_field_in_fields( $layout['sub_fields'], $selector );
+                    if ( $match ) return $match;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static function acf_field_context( $selector ) {
+        if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) return false;
+        foreach ( acf_get_field_groups() as $group ) {
+            $field = self::find_acf_field_in_fields( acf_get_fields( $group ), $selector );
+            if ( $field ) return array( 'field' => $field, 'group' => $group );
+        }
+        return false;
+    }
+
+    private static function acf_option_page_by_slug( $slug, array $pages ) {
+        $slug = sanitize_key( $slug );
+        foreach ( $pages as $page ) {
+            if ( $slug === sanitize_key( isset( $page['menu_slug'] ) ? $page['menu_slug'] : '' ) ) return $page;
+        }
+        return false;
+    }
+
+    private static function acf_option_page_by_post_id( $post_id, array $pages ) {
+        foreach ( $pages as $page ) {
+            if ( (string) $post_id === (string) $page['post_id'] ) return $page;
+            if ( in_array( (string) $post_id, array( 'option', 'options' ), true ) && in_array( (string) $page['post_id'], array( 'option', 'options' ), true ) ) return $page;
+        }
+        return false;
+    }
+
+    private static function acf_option_location_slugs( array $group ) {
+        $slugs = array();
+        foreach ( isset( $group['location'] ) && is_array( $group['location'] ) ? $group['location'] : array() as $rules ) {
+            foreach ( is_array( $rules ) ? $rules : array() as $rule ) {
+                if ( ! is_array( $rule ) || 'options_page' !== ( isset( $rule['param'] ) ? $rule['param'] : '' ) || '==' !== ( isset( $rule['operator'] ) ? $rule['operator'] : '' ) ) continue;
+                $slug = sanitize_key( isset( $rule['value'] ) ? $rule['value'] : '' );
+                if ( '' !== $slug ) $slugs[] = $slug;
+            }
+        }
+        return array_values( array_unique( $slugs ) );
+    }
+
+    private static function validate_acf_option_page_capability( array $page ) {
+        $capability = isset( $page['capability'] ) ? sanitize_key( $page['capability'] ) : 'edit_posts';
+        return ! $capability || current_user_can( $capability );
+    }
+
+    private static function acf_option_page_matches_context( array $page, array $context ) {
+        $slugs = self::acf_option_location_slugs( $context['group'] );
+        return empty( $slugs ) || in_array( sanitize_key( $page['menu_slug'] ), $slugs, true );
+    }
+
+    private static function resolve_acf_option_target( array $context, array $args ) {
+        $pages = self::acf_option_pages();
+
+        if ( ! empty( $args['option_page'] ) ) {
+            $page = self::acf_option_page_by_slug( $args['option_page'], $pages );
+            if ( ! $page ) return new WP_Error( 'invalid_acf_option_page', 'The requested ACF option-page menu_slug is not registered.' );
+            if ( ! self::validate_acf_option_page_capability( $page ) ) return new WP_Error( 'forbidden', 'You cannot access the requested ACF option page.' );
+            if ( ! self::acf_option_page_matches_context( $page, $context ) ) return new WP_Error( 'acf_option_page_mismatch', 'The requested field is not assigned to this ACF option page.' );
+            return array( 'post_id' => $page['post_id'], 'menu_slug' => sanitize_key( $page['menu_slug'] ) );
+        }
+
+        if ( ! empty( $args['post_id'] ) ) {
+            $post_id = sanitize_text_field( $args['post_id'] );
+            if ( strlen( $post_id ) > 191 || preg_match( '/[\x00-\x1F\x7F]/', $post_id ) ) return new WP_Error( 'invalid_acf_post_id', 'The supplied ACF option post_id is invalid.' );
+            $page = self::acf_option_page_by_post_id( $post_id, $pages );
+            if ( ! $page && ! in_array( $post_id, array( 'option', 'options' ), true ) ) return new WP_Error( 'invalid_acf_post_id', 'The supplied post_id does not belong to a registered ACF option page.' );
+            if ( ! $page && ! empty( self::acf_option_location_slugs( $context['group'] ) ) ) return new WP_Error( 'acf_option_page_mismatch', 'The requested field is assigned to a custom ACF option page, not the default option storage.' );
+            if ( $page && ! self::validate_acf_option_page_capability( $page ) ) return new WP_Error( 'forbidden', 'You cannot access the requested ACF option page.' );
+            if ( $page && ! self::acf_option_page_matches_context( $page, $context ) ) return new WP_Error( 'acf_option_page_mismatch', 'The requested field is not assigned to this ACF option page.' );
+            return array( 'post_id' => in_array( $post_id, array( 'option', 'options' ), true ) ? 'option' : $page['post_id'], 'menu_slug' => $page ? sanitize_key( $page['menu_slug'] ) : '' );
+        }
+
+        $targets = array();
+        foreach ( self::acf_option_location_slugs( $context['group'] ) as $slug ) {
+            $page = self::acf_option_page_by_slug( $slug, $pages );
+            if ( ! $page ) continue;
+            if ( ! self::validate_acf_option_page_capability( $page ) ) continue;
+            $targets[ (string) $page['post
