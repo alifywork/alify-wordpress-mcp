@@ -94,4 +94,124 @@ class WPCMCP_WooCommerce_Tools {
         if ( ! current_user_can( 'edit_products' ) ) return new WP_Error( 'forbidden', 'You cannot inspect WooCommerce products.' );
         $query = array( 'limit' => self::per_page( $args ), 'page' => self::page( $args ), 'paginate' => true, 'orderby' => 'modified', 'order' => 'DESC' );
         foreach ( array( 'status', 'type', 'sku' ) as $field ) if ( ! empty( $args[ $field ] ) ) $query[ $field ] = sanitize_text_field( $args[ $field ] );
-        if ( ! empty( $args['search'] ) ) $query['s'] = sanitize_text_field( $ar
+        if ( ! empty( $args['search'] ) ) $query['s'] = sanitize_text_field( $args['search'] );
+        $result = wc_get_products( $query );
+        $items = array();
+        foreach ( $result->products as $product ) $items[] = self::product_record( $product );
+        return array( 'items' => $items, 'page' => self::page( $args ), 'per_page' => self::per_page( $args ), 'total' => (int) $result->total, 'total_pages' => (int) $result->max_num_pages );
+    }
+
+    private static function get_product( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        $id = isset( $args['product_id'] ) ? absint( $args['product_id'] ) : 0;
+        $product = wc_get_product( $id );
+        if ( ! $product ) return new WP_Error( 'not_found', 'WooCommerce product not found.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot inspect this product.' );
+        return self::product_record( $product );
+    }
+
+    private static function apply_product_fields( $product, array $args ) {
+        $map = array(
+            'name' => 'set_name', 'slug' => 'set_slug', 'status' => 'set_status', 'description' => 'set_description', 'short_description' => 'set_short_description',
+            'sku' => 'set_sku', 'regular_price' => 'set_regular_price', 'sale_price' => 'set_sale_price', 'manage_stock' => 'set_manage_stock', 'stock_quantity' => 'set_stock_quantity',
+            'stock_status' => 'set_stock_status', 'featured' => 'set_featured', 'catalog_visibility' => 'set_catalog_visibility', 'image_id' => 'set_image_id',
+            'gallery_image_ids' => 'set_gallery_image_ids', 'category_ids' => 'set_category_ids', 'tag_ids' => 'set_tag_ids',
+        );
+        foreach ( $map as $field => $method ) {
+            if ( ! array_key_exists( $field, $args ) ) continue;
+            $value = $args[ $field ];
+            if ( in_array( $field, array( 'name', 'slug', 'sku', 'regular_price', 'sale_price', 'stock_status', 'catalog_visibility', 'status' ), true ) ) $value = sanitize_text_field( $value );
+            if ( in_array( $field, array( 'description', 'short_description' ), true ) ) $value = wp_kses_post( $value );
+            if ( in_array( $field, array( 'image_id', 'stock_quantity' ), true ) && null !== $value ) $value = absint( $value );
+            if ( in_array( $field, array( 'gallery_image_ids', 'category_ids', 'tag_ids' ), true ) ) $value = array_values( array_filter( array_map( 'absint', (array) $value ) ) );
+            $product->$method( $value );
+        }
+        return $product;
+    }
+
+    private static function create_product( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! current_user_can( 'edit_products' ) ) return new WP_Error( 'forbidden', 'You cannot create WooCommerce products.' );
+        $name = isset( $args['name'] ) ? sanitize_text_field( $args['name'] ) : '';
+        if ( '' === $name ) return new WP_Error( 'invalid_name', 'Product name is required.' );
+        $status = isset( $args['status'] ) ? sanitize_key( $args['status'] ) : 'draft';
+        if ( 'publish' === $status && ! current_user_can( 'publish_products' ) ) return new WP_Error( 'forbidden', 'You cannot publish products.' );
+        $args['status'] = $status;
+        try {
+            $product = self::apply_product_fields( new WC_Product_Simple(), $args );
+            $id = $product->save();
+            return self::product_record( wc_get_product( $id ) );
+        } catch ( Exception $e ) {
+            return new WP_Error( 'product_create_failed', $e->getMessage() );
+        }
+    }
+
+    private static function update_product( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        $id = isset( $args['product_id'] ) ? absint( $args['product_id'] ) : 0;
+        $product = wc_get_product( $id );
+        if ( ! $product ) return new WP_Error( 'not_found', 'WooCommerce product not found.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot update this product.' );
+        if ( isset( $args['status'] ) && 'publish' === $args['status'] && ! current_user_can( 'publish_products' ) ) return new WP_Error( 'forbidden', 'You cannot publish products.' );
+        try {
+            self::apply_product_fields( $product, $args )->save();
+            return self::product_record( wc_get_product( $id ) );
+        } catch ( Exception $e ) {
+            return new WP_Error( 'product_update_failed', $e->getMessage() );
+        }
+    }
+
+    private static function delete_product( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        $id = isset( $args['product_id'] ) ? absint( $args['product_id'] ) : 0;
+        $product = wc_get_product( $id );
+        if ( ! $product ) return new WP_Error( 'not_found', 'WooCommerce product not found.' );
+        if ( ! current_user_can( 'delete_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot delete this product.' );
+        $permanent = ! empty( $args['permanent'] );
+        if ( $permanent && ( ! isset( $args['confirm'] ) || true !== $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Permanent product deletion requires confirm=true.' );
+        try {
+            $product->delete( $permanent );
+            return array( 'success' => true, 'product_id' => $id, 'permanent' => $permanent );
+        } catch ( Exception $e ) {
+            return new WP_Error( 'product_delete_failed', $e->getMessage() );
+        }
+    }
+
+    private static function order_record( $order ) {
+        $items = array();
+        foreach ( $order->get_items() as $item ) $items[] = array( 'item_id' => $item->get_id(), 'product_id' => $item->get_product_id(), 'variation_id' => $item->get_variation_id(), 'name' => $item->get_name(), 'quantity' => $item->get_quantity(), 'subtotal' => $item->get_subtotal(), 'total' => $item->get_total() );
+        return array(
+            'id' => $order->get_id(), 'status' => $order->get_status(), 'currency' => $order->get_currency(), 'total' => $order->get_total(), 'customer_id' => $order->get_customer_id(),
+            'billing_name' => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ), 'billing_company' => $order->get_billing_company(), 'billing_country' => $order->get_billing_country(),
+            'payment_method' => $order->get_payment_method_title(), 'customer_note' => $order->get_customer_note(), 'items' => $items,
+            'created_gmt' => $order->get_date_created() ? gmdate( 'Y-m-d H:i:s', $order->get_date_created()->getTimestamp() ) : null,
+            'modified_gmt' => $order->get_date_modified() ? gmdate( 'Y-m-d H:i:s', $order->get_date_modified()->getTimestamp() ) : null,
+        );
+    }
+
+    private static function can_manage_orders() { return current_user_can( 'edit_shop_orders' ) || current_user_can( 'manage_woocommerce' ); }
+
+    private static function list_orders( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! self::can_manage_orders() ) return new WP_Error( 'forbidden', 'You cannot inspect WooCommerce orders.' );
+        $query = array( 'limit' => self::per_page( $args ), 'page' => self::page( $args ), 'paginate' => true, 'orderby' => 'date', 'order' => 'DESC' );
+        if ( ! empty( $args['status'] ) ) $query['status'] = sanitize_key( $args['status'] );
+        if ( ! empty( $args['customer_id'] ) ) $query['customer_id'] = absint( $args['customer_id'] );
+        $result = wc_get_orders( $query );
+        $items = array();
+        foreach ( $result->orders as $order ) $items[] = self::order_record( $order );
+        return array( 'items' => $items, 'page' => self::page( $args ), 'per_page' => self::per_page( $args ), 'total' => (int) $result->total, 'total_pages' => (int) $result->max_num_pages );
+    }
+
+    private static function get_order( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! self::can_manage_orders() ) return new WP_Error( 'forbidden', 'You cannot inspect WooCommerce orders.' );
+        $order = wc_get_order( isset( $args['order_id'] ) ? absint( $args['order_id'] ) : 0 );
+        return $order ? self::order_record( $order ) : new WP_Error( 'not_found', 'WooCommerce order not found.' );
+    }
+
+    private static function update_order_status( array $args ) {
+        if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! self::can_manage_orders() ) return new WP_Error( 'forbidden', 'You cannot update WooCommerce orders.' );
+        $order = wc_get_order( isset( $args['order_id'] ) ? absint( $args['order_id'] ) : 0 );
+        if ( ! $order ) retur
