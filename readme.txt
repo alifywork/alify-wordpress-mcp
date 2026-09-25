@@ -4,7 +4,7 @@ Tags: chatgpt, mcp, model context protocol, wordpress, oauth
 Requires at least: 6.4
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv2 or later
 
 Connect ChatGPT directly to WordPress through a remote MCP server. No OpenAI API key is used by the plugin.
@@ -23,10 +23,11 @@ WP ChatGPT MCP turns WordPress into a remote Model Context Protocol server with:
 * Refresh-token rotation
 * WordPress capability checks
 * Read/write MCP tool annotations
-* 86 core tools for content, media, taxonomies, comments, users, revisions, menus, safe site settings and guarded theme-source maintenance
+* Broad WordPress management tools for content, media, taxonomies, comments, users, revisions, menus, site settings and guarded theme-source maintenance
+* Persistent MCP-managed custom post type and taxonomy definitions, including archives and rewrite settings
 * Guarded WordPress.org plugin and theme installation, activation, update and deletion
 * Secure public-URL and native ChatGPT file image uploads with featured-image assignment
-* 6 additional ACF tools when Advanced Custom Fields is active
+* Comprehensive ACF/ACF PRO tools for field groups, fields, location rules, conditional logic, values, nested structures and option pages
 * 10 additional product/order/customer tools when WooCommerce is active
 * Connection revocation and activity logs
 
@@ -48,7 +49,8 @@ Use HTTPS, keep write tools disabled when they are not required, and review dest
 * Access tokens expire after one hour.
 * Refresh tokens expire after 30 days and rotate on refresh.
 * WordPress permissions are checked for each content operation.
-* Permanent deletion is not exposed; destructive content action moves content to Trash.
+* Permanent deletion and dangerous structural operations are guarded and require explicit `confirm=true` where exposed.
+* This confirmation requirement is intentional and should not be removed in production.
 * Logs do not store raw OAuth tokens, full post bodies, or ACF values.
 * Temporary ChatGPT file URLs and file identifiers are not stored in activity logs.
 * Theme-source reads are restricted to the active theme and its parent; absolute server paths are never returned.
@@ -58,6 +60,15 @@ Use HTTPS, keep write tools disabled when they are not required, and review dest
 * Reverse-proxy/CDN client IP headers are ignored by default. Define `WPCMCP_TRUST_PROXY_HEADERS` as true only when your trusted proxy overwrites `CF-Connecting-IP`, `X-Forwarded-For`, or `X-Real-IP`.
 
 == Changelog ==
+
+= 1.5.0 =
+* Added persistent MCP-managed custom post type and taxonomy definitions, including archives, rewrite slugs, REST visibility, supports and taxonomy connections.
+* Added archive inspection and guarded rewrite-rule flushing.
+* Added comprehensive ACF/ACF PRO field-group CRUD, duplication, trash/permanent delete, location rules and field-group settings.
+* Added ACF field CRUD for installed field types, including nested fields, conditional logic, repeaters, groups and flexible-content structures.
+* Added ACF values management for posts, users, terms, comments and options targets with capability checks.
+* Added persistent MCP-managed ACF PRO option-page creation, update and deletion without deleting stored option values.
+* Permanent deletion and dangerous structural operations require explicit confirm=true.
 
 = 1.4.0 =
 * Added automatic database schema/version upgrades on normal plugin updates, not only activation.
