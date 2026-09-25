@@ -298,3 +298,103 @@ class WPCMCP_ACF_Pro_Tools {
             'key' => ! empty( $args['key'] ) ? sanitize_key( $args['key'] ) : 'group_' . wp_generate_password( 13, false, false ),
             'title' => sanitize_text_field( $args['title'] ),
             'location' => isset( $args['location'] ) && is_array( $args['location'] ) ? $args['location'] : array(),
+            'active' => true,
+        );
+        $group = self::merge_group_settings( $group, $args );
+        $saved = acf_update_field_group( $group );
+        return $saved ? self::group_record( $saved, true ) : new WP_Error( 'acf_save_failed', 'ACF could not create the field group.' );
+    }
+
+    private static function update_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        $group = self::resolve_group( $args['group'] );
+        if ( ! $group ) return new WP_Error( 'not_found', 'ACF field group not found.' );
+        $saved = acf_update_field_group( self::merge_group_settings( $group, $args ) );
+        return $saved ? self::group_record( $saved, true ) : new WP_Error( 'acf_save_failed', 'ACF could not update the field group.' );
+    }
+
+    private static function duplicate_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_duplicate_field_group' ) ) return new WP_Error( 'acf_unavailable', 'ACF duplicate field-group API unavailable.' );
+        $new = acf_duplicate_field_group( $args['group'] );
+        if ( ! $new ) return new WP_Error( 'duplicate_failed', 'ACF could not duplicate the field group.' );
+        if ( ! empty( $args['title'] ) ) {
+            $new['title'] = sanitize_text_field( $args['title'] );
+            $new = acf_update_field_group( $new );
+        }
+        return self::group_record( $new, true );
+    }
+
+    private static function trash_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_trash_field_group' ) ) return new WP_Error( 'acf_unavailable', 'ACF trash API unavailable.' );
+        return array( 'success' => (bool) acf_trash_field_group( $args['group'] ) );
+    }
+
+    private static function delete_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Permanent ACF field-group deletion requires confirm=true.' );
+        if ( ! function_exists( 'acf_delete_field_group' ) ) return new WP_Error( 'acf_unavailable', 'ACF delete API unavailable.' );
+        return array( 'success' => (bool) acf_delete_field_group( $args['group'] ), 'deleted_permanently' => true );
+    }
+
+    private static function resolve_parent_id( $parent ) {
+        $parent = is_numeric( $parent ) ? absint( $parent ) : sanitize_text_field( $parent );
+        $group = self::resolve_group( $parent );
+        if ( $group && ! empty( $group['ID'] ) ) return (int) $group['ID'];
+        if ( function_exists( 'acf_get_field' ) ) {
+            $field = acf_get_field( $parent );
+            if ( $field && ! empty( $field['ID'] ) ) return (int) $field['ID'];
+        }
+        return 0;
+    }
+
+    private static function merge_field_settings( array $field, array $args ) {
+        if ( isset( $args['label'] ) ) $field['label'] = sanitize_text_field( $args['label'] );
+        if ( isset( $args['name'] ) ) $field['name'] = sanitize_key( $args['name'] );
+        if ( isset( $args['type'] ) ) $field['type'] = sanitize_key( $args['type'] );
+        if ( isset( $args['parent'] ) ) {
+            $parent = self::resolve_parent_id( $args['parent'] );
+            if ( ! $parent ) return new WP_Error( 'invalid_parent', 'ACF parent group/field could not be resolved.' );
+            $field['parent'] = $parent;
+        }
+        if ( isset( $args['settings'] ) && is_array( $args['settings'] ) ) {
+            foreach ( $args['settings'] as $key => $value ) {
+                if ( in_array( $key, array( 'ID', 'key', 'parent', 'label', 'name', 'type' ), true ) ) continue;
+                $field[ sanitize_key( $key ) ] = $value;
+            }
+        }
+        return $field;
+    }
+
+    private static function create_field( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_update_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF field write API unavailable.' );
+        $parent = self::resolve_parent_id( $args['parent'] );
+        if ( ! $parent ) return new WP_Error( 'invalid_parent', 'ACF parent group/field could not be resolved.' );
+        $field = array(
+            'key' => ! empty( $args['key'] ) ? sanitize_key( $args['key'] ) : 'field_' . wp_generate_password( 13, false, false ),
+            'label' => sanitize_text_field( $args['label'] ),
+            'name' => sanitize_key( $args['name'] ),
+            'type' => sanitize_key( $args['type'] ),
+            'parent' => $parent,
+            'menu_order' => 0,
+        );
+        $field = self::merge_field_settings( $field, $args );
+        if ( is_wp_error( $field ) ) return $field;
+        $saved = acf_update_field( $field );
+        return $saved ?: new WP_Error( 'acf_save_failed', 'ACF could not create the field.' );
+    }
+
+    private static function update_field_definition( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_get_field' ) || ! function_exists( 'acf_update_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF field write API unavailable.' );
+        $field = acf_get_field( is_numeric( $args['field'] ) ? absint( $args['field'] ) : sanitize_text_field( $args['field'] ) );
+        if ( ! $field ) return new WP_Error( 'not_found', 'ACF field not found.' );
+        $field = self::merge_field_settings( $field, $args );
