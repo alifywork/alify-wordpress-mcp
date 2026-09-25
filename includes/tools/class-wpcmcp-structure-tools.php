@@ -198,3 +198,95 @@ class WPCMCP_Structure_Tools {
         $singular = isset( $args['singular_label'] ) ? sanitize_text_field( $args['singular_label'] ) : $label;
         $has_archive = isset( $args['has_archive'] ) ? $args['has_archive'] : true;
         if ( is_string( $has_archive ) ) $has_archive = sanitize_title( $has_archive );
+        $rewrite_slug = isset( $args['rewrite_slug'] ) && '' !== trim( $args['rewrite_slug'] ) ? sanitize_title( $args['rewrite_slug'] ) : $slug;
+        $definition = array(
+            'labels' => array( 'name' => $label, 'singular_name' => $singular ),
+            'description' => isset( $args['description'] ) ? sanitize_textarea_field( $args['description'] ) : '',
+            'public' => array_key_exists( 'public', $args ) ? (bool) $args['public'] : true,
+            'publicly_queryable' => array_key_exists( 'publicly_queryable', $args ) ? (bool) $args['publicly_queryable'] : true,
+            'show_ui' => array_key_exists( 'show_ui', $args ) ? (bool) $args['show_ui'] : true,
+            'show_in_rest' => array_key_exists( 'show_in_rest', $args ) ? (bool) $args['show_in_rest'] : true,
+            'hierarchical' => ! empty( $args['hierarchical'] ),
+            'has_archive' => $has_archive,
+            'rewrite' => array( 'slug' => $rewrite_slug, 'with_front' => array_key_exists( 'with_front', $args ) ? (bool) $args['with_front'] : false ),
+            'menu_icon' => isset( $args['menu_icon'] ) ? sanitize_text_field( $args['menu_icon'] ) : 'dashicons-admin-post',
+            'supports' => isset( $args['supports'] ) ? self::sanitize_supports( $args['supports'] ) : array( 'title', 'editor', 'thumbnail', 'excerpt', 'revisions' ),
+            'taxonomies' => isset( $args['taxonomies'] ) ? array_values( array_unique( array_map( 'sanitize_key', $args['taxonomies'] ) ) ) : array(),
+            'capability_type' => isset( $args['capability_type'] ) ? sanitize_key( $args['capability_type'] ) : 'post',
+            'map_meta_cap' => array_key_exists( 'map_meta_cap', $args ) ? (bool) $args['map_meta_cap'] : true,
+        );
+        if ( isset( $args['menu_position'] ) ) $definition['menu_position'] = (int) $args['menu_position'];
+        $managed = get_option( self::POST_TYPES_OPTION, array() );
+        $managed[ $slug ] = $definition;
+        update_option( self::POST_TYPES_OPTION, $managed, false );
+        return array( 'success' => true, 'post_type' => $slug, 'definition' => $definition, 'requires_rewrite_flush' => true );
+    }
+
+    private static function delete_post_type_definition( array $args ) {
+        $cap = self::ensure_manage_options();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Deleting a post-type definition requires confirm=true.' );
+        $slug = sanitize_key( isset( $args['post_type'] ) ? $args['post_type'] : '' );
+        $managed = get_option( self::POST_TYPES_OPTION, array() );
+        if ( ! isset( $managed[ $slug ] ) ) return new WP_Error( 'not_managed', 'This post-type definition is not managed by the MCP plugin.' );
+        unset( $managed[ $slug ] );
+        update_option( self::POST_TYPES_OPTION, $managed, false );
+        if ( function_exists( 'unregister_post_type' ) && post_type_exists( $slug ) ) unregister_post_type( $slug );
+        return array( 'success' => true, 'post_type' => $slug, 'content_deleted' => false, 'requires_rewrite_flush' => true );
+    }
+
+    private static function save_taxonomy_definition( array $args ) {
+        $cap = self::ensure_manage_options();
+        if ( is_wp_error( $cap ) ) return $cap;
+        $slug = sanitize_key( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        if ( ! $slug || strlen( $slug ) > 32 ) return new WP_Error( 'invalid_taxonomy', 'Taxonomy key must be 1-32 safe characters.' );
+        if ( taxonomy_exists( $slug ) ) {
+            $managed = get_option( self::TAXONOMIES_OPTION, array() );
+            if ( ! isset( $managed[ $slug ] ) ) return new WP_Error( 'unmanaged_taxonomy', 'Existing taxonomies not created by this MCP plugin cannot be overwritten.' );
+        }
+        $objects = array_values( array_unique( array_filter( array_map( 'sanitize_key', (array) $args['object_types'] ), 'post_type_exists' ) ) );
+        if ( empty( $objects ) ) return new WP_Error( 'invalid_object_types', 'At least one registered post type is required.' );
+        $label = sanitize_text_field( $args['label'] );
+        $singular = isset( $args['singular_label'] ) ? sanitize_text_field( $args['singular_label'] ) : $label;
+        $rewrite_slug = isset( $args['rewrite_slug'] ) && '' !== trim( $args['rewrite_slug'] ) ? sanitize_title( $args['rewrite_slug'] ) : $slug;
+        $definition = array(
+            'object_types' => $objects,
+            'args' => array(
+                'labels' => array( 'name' => $label, 'singular_name' => $singular ),
+                'description' => isset( $args['description'] ) ? sanitize_textarea_field( $args['description'] ) : '',
+                'public' => array_key_exists( 'public', $args ) ? (bool) $args['public'] : true,
+                'publicly_queryable' => array_key_exists( 'publicly_queryable', $args ) ? (bool) $args['publicly_queryable'] : true,
+                'show_ui' => array_key_exists( 'show_ui', $args ) ? (bool) $args['show_ui'] : true,
+                'show_in_rest' => array_key_exists( 'show_in_rest', $args ) ? (bool) $args['show_in_rest'] : true,
+                'show_admin_column' => array_key_exists( 'show_admin_column', $args ) ? (bool) $args['show_admin_column'] : true,
+                'hierarchical' => ! empty( $args['hierarchical'] ),
+                'rewrite' => array( 'slug' => $rewrite_slug, 'with_front' => array_key_exists( 'with_front', $args ) ? (bool) $args['with_front'] : false ),
+            ),
+        );
+        $managed = get_option( self::TAXONOMIES_OPTION, array() );
+        $managed[ $slug ] = $definition;
+        update_option( self::TAXONOMIES_OPTION, $managed, false );
+        return array( 'success' => true, 'taxonomy' => $slug, 'definition' => $definition, 'requires_rewrite_flush' => true );
+    }
+
+    private static function delete_taxonomy_definition( array $args ) {
+        $cap = self::ensure_manage_options();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Deleting a taxonomy definition requires confirm=true.' );
+        $slug = sanitize_key( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        $managed = get_option( self::TAXONOMIES_OPTION, array() );
+        if ( ! isset( $managed[ $slug ] ) ) return new WP_Error( 'not_managed', 'This taxonomy definition is not managed by the MCP plugin.' );
+        unset( $managed[ $slug ] );
+        update_option( self::TAXONOMIES_OPTION, $managed, false );
+        if ( function_exists( 'unregister_taxonomy' ) && taxonomy_exists( $slug ) ) unregister_taxonomy( $slug );
+        return array( 'success' => true, 'taxonomy' => $slug, 'terms_manually_deleted' => false, 'requires_rewrite_flush' => true );
+    }
+
+    private static function flush_rewrites( array $args ) {
+        $cap = self::ensure_manage_options();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Flushing rewrite rules requires confirm=true.' );
+        flush_rewrite_rules( ! empty( $args['hard'] ) );
+        return array( 'success' => true, 'hard' => ! empty( $args['hard'] ) );
+    }
+}
