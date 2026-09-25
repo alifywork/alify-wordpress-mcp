@@ -169,4 +169,155 @@ class WPCMCP_Theme_Source_Tools {
     }
 
     private static function write_permission_error() {
-        if ( ! self::can_read_source() ) return new WP_Error( 'fo
+        if ( ! self::can_read_source() ) return new WP_Error( 'forbidden', 'Theme source writes require the WordPress edit_theme_options capability.' );
+        if ( ! current_user_can( 'edit_themes' ) ) return new WP_Error( 'forbidden', 'Theme source writes require the WordPress edit_themes capability. Use wordpress.get_theme_source_status for the exact policy state.' );
+        return new WP_Error( 'forbidden', 'Theme source writes are not allowed for the connected user.' );
+    }
+
+    private static function resolve_theme( $target ) {
+        $target = 'parent' === $target ? 'parent' : 'active';
+        $stylesheet = 'parent' === $target ? get_template() : get_stylesheet();
+        $theme = wp_get_theme( $stylesheet );
+        if ( ! $theme->exists() ) return new WP_Error( 'theme_not_found', 'The active theme target could not be resolved.' );
+        if ( $theme->errors() ) return new WP_Error( 'theme_error', $theme->errors()->get_error_message() );
+        $directory = realpath( $theme->get_stylesheet_directory() );
+        if ( false === $directory || ! is_dir( $directory ) ) return new WP_Error( 'theme_directory_missing', 'The theme source directory is unavailable.' );
+        return array(
+            'target'     => $target,
+            'stylesheet' => $theme->get_stylesheet(),
+            'name'       => $theme->get( 'Name' ),
+            'directory'  => wp_normalize_path( $directory ),
+            'theme'      => $theme,
+        );
+    }
+
+    private static function allowed_extensions( $theme ) {
+        self::load_file_admin();
+        $core = function_exists( 'wp_get_theme_file_editable_extensions' ) ? wp_get_theme_file_editable_extensions( $theme ) : array( 'php', 'css', 'js', 'json' );
+        return array_values( array_intersect( array( 'php', 'css', 'js', 'json' ), array_map( 'strtolower', (array) $core ) ) );
+    }
+
+    private static function normalize_path( $path ) {
+        if ( ! is_string( $path ) ) return new WP_Error( 'invalid_theme_path', 'Theme file path must be a string.' );
+        $path = trim( wp_normalize_path( $path ) );
+        if ( '' === $path || '/' === substr( $path, 0, 1 ) || false !== strpos( $path, "\0" ) || 0 !== validate_file( $path ) ) {
+            return new WP_Error( 'invalid_theme_path', 'A safe relative theme file path is required.' );
+        }
+        $path = preg_replace( '#/+#', '/', $path );
+        foreach ( explode( '/', $path ) as $segment ) {
+            if ( '' === $segment || '.' === substr( $segment, 0, 1 ) ) return new WP_Error( 'invalid_theme_path', 'Hidden and dot-path theme files are not accessible.' );
+        }
+        return $path;
+    }
+
+    private static function resolve_file( array $theme, $path ) {
+        $path = self::normalize_path( $path );
+        if ( is_wp_error( $path ) ) return $path;
+        $extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+        if ( ! in_array( $extension, self::allowed_extensions( $theme['theme'] ), true ) ) {
+            return new WP_Error( 'unsupported_theme_file', 'Only WordPress-editable PHP, CSS, JavaScript, and JSON theme files are supported.' );
+        }
+        $candidate = realpath( $theme['directory'] . '/' . $path );
+        if ( false === $candidate || ! is_file( $candidate ) ) return new WP_Error( 'theme_file_not_found', 'The requested existing theme file was not found.' );
+        $candidate = wp_normalize_path( $candidate );
+        $root = trailingslashit( $theme['directory'] );
+        if ( 0 !== strpos( $candidate, $root ) ) return new WP_Error( 'theme_path_escape', 'The requested file resolves outside the allowed theme directory.' );
+        return array( 'path' => $path, 'absolute' => $candidate, 'extension' => $extension );
+    }
+
+    private static function file_metadata( array $theme, array $file, $include_content = false ) {
+        $size = wp_filesize( $file['absolute'] );
+        if ( false === $size ) return new WP_Error( 'theme_file_unreadable', 'WordPress could not determine the theme file size.' );
+        if ( $size > self::MAX_READ_BYTES ) return new WP_Error( 'theme_file_too_large', 'Theme source files larger than 1 MB cannot be read through MCP.' );
+        $content = file_get_contents( $file['absolute'] );
+        if ( false === $content ) return new WP_Error( 'theme_file_unreadable', 'WordPress could not read the theme file.' );
+        $result = array(
+            'theme'        => $theme['target'],
+            'stylesheet'   => $theme['stylesheet'],
+            'theme_name'   => $theme['name'],
+            'path'         => $file['path'],
+            'extension'    => $file['extension'],
+            'size_bytes'   => strlen( $content ),
+            'sha256'       => hash( 'sha256', $content ),
+            'modified_gmt' => gmdate( 'c', (int) filemtime( $file['absolute'] ) ),
+        );
+        if ( $include_content ) $result['content'] = $content;
+        return $result;
+    }
+
+    private static function list_theme_files( array $args ) {
+        if ( ! self::can_read_source() ) return new WP_Error( 'forbidden', 'Theme source reads require the WordPress edit_theme_options capability.' );
+        $theme = self::resolve_theme( isset( $args['theme'] ) ? $args['theme'] : 'active' );
+        if ( is_wp_error( $theme ) ) return $theme;
+        self::load_file_admin();
+        $paths = list_files( $theme['directory'], 20, array( '.git', 'node_modules', 'vendor' ), false );
+        if ( false === $paths ) return new WP_Error( 'theme_files_unavailable', 'WordPress could not list theme source files.' );
+        $allowed = self::allowed_extensions( $theme['theme'] );
+        $items = array();
+        foreach ( $paths as $absolute ) {
+            $listed = wp_normalize_path( $absolute );
+            $absolute = realpath( $absolute );
+            if ( false === $absolute || ! is_file( $absolute ) ) continue;
+            $absolute = wp_normalize_path( $absolute );
+            if ( 0 !== strpos( $absolute, trailingslashit( $theme['directory'] ) ) || 0 !== strpos( $listed, trailingslashit( $theme['directory'] ) ) ) continue;
+            $relative = ltrim( substr( $listed, strlen( $theme['directory'] ) ), '/' );
+            $extension = strtolower( pathinfo( $relative, PATHINFO_EXTENSION ) );
+            if ( ! in_array( $extension, $allowed, true ) ) continue;
+            $items[] = array( 'path' => $relative, 'extension' => $extension, 'size_bytes' => (int) wp_filesize( $absolute ) );
+        }
+        usort( $items, static function ( $a, $b ) { return strcmp( $a['path'], $b['path'] ); } );
+        $total = count( $items );
+        if ( $total > self::MAX_FILES ) $items = array_slice( $items, 0, self::MAX_FILES );
+        return array(
+            'theme'       => $theme['target'],
+            'stylesheet'  => $theme['stylesheet'],
+            'theme_name'  => $theme['name'],
+            'files'       => $items,
+            'total'       => $total,
+            'truncated'   => $total > self::MAX_FILES,
+            'extensions'  => $allowed,
+        );
+    }
+
+    private static function read_theme_file( array $args ) {
+        if ( ! self::can_read_source() ) return new WP_Error( 'forbidden', 'Theme source reads require the WordPress edit_theme_options capability.' );
+        $theme = self::resolve_theme( isset( $args['theme'] ) ? $args['theme'] : 'active' );
+        if ( is_wp_error( $theme ) ) return $theme;
+        $file = self::resolve_file( $theme, isset( $args['path'] ) ? $args['path'] : '' );
+        if ( is_wp_error( $file ) ) return $file;
+        return self::file_metadata( $theme, $file, true );
+    }
+
+    private static function backups() {
+        $backups = get_option( self::BACKUP_OPTION, array() );
+        return is_array( $backups ) ? $backups : array();
+    }
+
+    private static function save_backup( array $theme, array $file, $content, $reason ) {
+        $backups = self::backups();
+        $id = wp_generate_uuid4();
+        $backups[] = array(
+            'id'          => $id,
+            'created_gmt' => gmdate( 'c' ),
+            'created_by'  => get_current_user_id(),
+            'reason'      => sanitize_key( $reason ),
+            'stylesheet'  => $theme['stylesheet'],
+            'theme_name'  => $theme['name'],
+            'path'        => $file['path'],
+            'extension'   => $file['extension'],
+            'size_bytes'  => strlen( $content ),
+            'sha256'      => hash( 'sha256', $content ),
+            'content'     => $content,
+        );
+        if ( count( $backups ) > self::MAX_BACKUPS ) $backups = array_slice( $backups, -self::MAX_BACKUPS );
+        $saved = update_option( self::BACKUP_OPTION, $backups, false );
+        if ( ! $saved ) {
+            $persisted = self::backups();
+            $found = false;
+            foreach ( $persisted as $backup ) {
+                if ( isset( $backup['id'] ) && hash_equals( $id, (string) $backup['id'] ) ) {
+                    $found = true;
+                    break;
+                }
+            }
+            if ( ! $found ) return new WP_Error( 'theme_backup_fail
