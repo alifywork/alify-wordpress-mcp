@@ -198,3 +198,103 @@ class WPCMCP_ACF_Pro_Tools {
         if ( preg_match( '/^user_(\d+)$/', (string) $target, $m ) ) {
             return current_user_can( $write ? 'edit_user' : 'list_users', (int) $m[1] );
         }
+        if ( preg_match( '/^comment_(\d+)$/', (string) $target, $m ) ) {
+            return current_user_can( $write ? 'edit_comment' : 'moderate_comments', (int) $m[1] );
+        }
+        if ( preg_match( '/^([a-z0-9_\-]+)_(\d+)$/', (string) $target, $m ) ) {
+            $taxonomy = get_taxonomy( sanitize_key( $m[1] ) );
+            if ( $taxonomy ) {
+                $cap = $write ? $taxonomy->cap->edit_terms : $taxonomy->cap->manage_terms;
+                return current_user_can( $cap );
+            }
+        }
+        return current_user_can( 'manage_options' );
+    }
+
+    private static function group_record( $group, $with_fields = false ) {
+        $record = array(
+            'ID' => isset( $group['ID'] ) ? (int) $group['ID'] : 0,
+            'key' => isset( $group['key'] ) ? $group['key'] : '',
+            'title' => isset( $group['title'] ) ? $group['title'] : '',
+            'active' => ! isset( $group['active'] ) || (bool) $group['active'],
+            'menu_order' => isset( $group['menu_order'] ) ? (int) $group['menu_order'] : 0,
+            'position' => isset( $group['position'] ) ? $group['position'] : '',
+            'style' => isset( $group['style'] ) ? $group['style'] : '',
+            'label_placement' => isset( $group['label_placement'] ) ? $group['label_placement'] : '',
+            'instruction_placement' => isset( $group['instruction_placement'] ) ? $group['instruction_placement'] : '',
+            'hide_on_screen' => isset( $group['hide_on_screen'] ) ? $group['hide_on_screen'] : array(),
+            'location' => isset( $group['location'] ) ? $group['location'] : array(),
+        );
+        if ( $with_fields && function_exists( 'acf_get_fields' ) ) $record['fields'] = acf_get_fields( $group ) ?: array();
+        return $record;
+    }
+
+    private static function list_groups() {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        $items = array();
+        foreach ( acf_get_field_groups() as $group ) $items[] = self::group_record( $group, false );
+        return array( 'field_groups' => $items );
+    }
+
+    private static function resolve_group( $id ) {
+        if ( ! function_exists( 'acf_get_field_group' ) ) return false;
+        return acf_get_field_group( is_numeric( $id ) ? absint( $id ) : sanitize_text_field( $id ) );
+    }
+
+    private static function get_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        $group = self::resolve_group( $args['group'] );
+        return $group ? self::group_record( $group, true ) : new WP_Error( 'not_found', 'ACF field group not found.' );
+    }
+
+    private static function list_fields( array $args ) {
+        $result = self::get_group( $args );
+        if ( is_wp_error( $result ) ) return $result;
+        return array( 'group' => $result['key'], 'fields' => $result['fields'] );
+    }
+
+    private static function get_field( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_get_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF field API unavailable.' );
+        $field = acf_get_field( is_numeric( $args['field'] ) ? absint( $args['field'] ) : sanitize_text_field( $args['field'] ) );
+        return $field ?: new WP_Error( 'not_found', 'ACF field not found.' );
+    }
+
+    private static function get_values( array $args ) {
+        if ( ! function_exists( 'get_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF value API unavailable.' );
+        $target = self::normalize_target( $args['target'] );
+        if ( is_wp_error( $target ) ) return $target;
+        if ( ! self::target_capability_check( $target, false ) ) return new WP_Error( 'forbidden', 'You cannot read ACF values from this target.' );
+        $formatted = ! array_key_exists( 'format_value', $args ) || (bool) $args['format_value'];
+        $values = array();
+        foreach ( (array) $args['fields'] as $selector ) {
+            $selector = sanitize_text_field( $selector );
+            if ( '' === $selector ) continue;
+            $values[ $selector ] = get_field( $selector, $target, $formatted );
+        }
+        return array( 'target' => $target, 'values' => $values );
+    }
+
+    private static function merge_group_settings( array $group, array $args ) {
+        if ( isset( $args['title'] ) ) $group['title'] = sanitize_text_field( $args['title'] );
+        if ( isset( $args['location'] ) && is_array( $args['location'] ) ) $group['location'] = $args['location'];
+        if ( isset( $args['settings'] ) && is_array( $args['settings'] ) ) {
+            foreach ( $args['settings'] as $key => $value ) {
+                if ( in_array( $key, array( 'ID', 'key', 'title', 'location' ), true ) ) continue;
+                $group[ sanitize_key( $key ) ] = $value;
+            }
+        }
+        return $group;
+    }
+
+    private static function create_group( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_update_field_group' ) ) return new WP_Error( 'acf_unavailable', 'ACF field-group write API unavailable.' );
+        $group = array(
+            'key' => ! empty( $args['key'] ) ? sanitize_key( $args['key'] ) : 'group_' . wp_generate_password( 13, false, false ),
+            'title' => sanitize_text_field( $args['title'] ),
+            'location' => isset( $args['location'] ) && is_array( $args['location'] ) ? $args['location'] : array(),
