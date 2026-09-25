@@ -292,4 +292,40 @@ class WPCMCP_Admin_Tools {
         );
         if ( array_key_exists( 'timezone', $args ) ) {
             $timezone = sanitize_text_field( $args['timezone'] );
-            $valid_timezone = in_array( $time
+            $valid_timezone = in_array( $timezone, timezone_identifiers_list(), true ) || preg_match( '/^[+-](?:1[0-4]|[0-9])(?:\.5)?$/', $timezone );
+            if ( ! $valid_timezone ) return new WP_Error( 'invalid_timezone', 'Timezone must be a valid IANA name or WordPress UTC offset.' );
+        }
+        foreach ( array( 'homepage_id', 'posts_page_id' ) as $page_field ) {
+            if ( ! array_key_exists( $page_field, $args ) ) continue;
+            $page_id = absint( $args[ $page_field ] );
+            if ( $page_id && 'page' !== get_post_type( $page_id ) ) return new WP_Error( 'invalid_page', $page_field . ' must reference a WordPress page.' );
+        }
+        $updated = array();
+        foreach ( $map as $input => $config ) {
+            if ( ! array_key_exists( $input, $args ) ) continue;
+            $value = call_user_func( $config[1], $args[ $input ] );
+            if ( 'week_starts_on' === $input ) $value = min( 6, $value );
+            if ( 'posts_per_page' === $input ) $value = min( 100, max( 1, $value ) );
+            update_option( $config[0], $value );
+            $updated[] = $input;
+        }
+        if ( array_key_exists( 'homepage_display', $args ) ) {
+            $value = 'page' === $args['homepage_display'] ? 'page' : 'posts';
+            update_option( 'show_on_front', $value );
+            $updated[] = 'homepage_display';
+        }
+        foreach ( array( 'homepage_id' => 'page_on_front', 'posts_page_id' => 'page_for_posts' ) as $input => $option ) {
+            if ( ! array_key_exists( $input, $args ) ) continue;
+            $id = absint( $args[ $input ] );
+            update_option( $option, $id );
+            $updated[] = $input;
+        }
+        if ( array_key_exists( 'default_comment_status', $args ) ) {
+            $status = 'open' === $args['default_comment_status'] ? 'open' : 'closed';
+            update_option( 'default_comment_status', $status );
+            $updated[] = 'default_comment_status';
+        }
+        if ( empty( $updated ) ) return new WP_Error( 'no_changes', 'No supported settings were supplied.' );
+        return array( 'success' => true, 'updated' => $updated, 'settings' => self::get_site_settings() );
+    }
+}
