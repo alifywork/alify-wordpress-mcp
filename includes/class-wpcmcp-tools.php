@@ -33,6 +33,7 @@ class WPCMCP_Tools {
             'WPCMCP_WooCommerce_Tools',
             'WPCMCP_Structure_Tools',
             'WPCMCP_ACF_Pro_Tools',
+            'WPCMCP_Elementor_Tools',
         );
     }
 
