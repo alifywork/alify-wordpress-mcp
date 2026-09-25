@@ -237,4 +237,118 @@ class WPCMCP_Content_Extras_Tools {
         unset( $count_query['number'], $count_query['offset'], $count_query['orderby'], $count_query['order'] );
         $total = wp_count_terms( $taxonomy->name, $count_query );
         if ( is_wp_error( $total ) ) return $total;
-        return array( 'items' => array_map( array( __CLASS__, 'term_record' ), $terms ), 'page' => $page, 'per_page' => $pe
+        return array( 'items' => array_map( array( __CLASS__, 'term_record' ), $terms ), 'page' => $page, 'per_page' => $per_page, 'total' => (int) $total, 'total_pages' => (int) ceil( $total / $per_page ) );
+    }
+
+    private static function get_term( array $args ) {
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        if ( ! $taxonomy ) return new WP_Error( 'invalid_taxonomy', 'Public taxonomy not found.' );
+        $term = get_term( isset( $args['term_id'] ) ? absint( $args['term_id'] ) : 0, $taxonomy->name );
+        if ( ! $term || is_wp_error( $term ) ) return new WP_Error( 'not_found', 'Term not found.' );
+        return self::term_record( $term );
+    }
+
+    private static function create_term( array $args ) {
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        if ( ! $taxonomy ) return new WP_Error( 'invalid_taxonomy', 'Public taxonomy not found.' );
+        if ( ! current_user_can( $taxonomy->cap->manage_terms ) ) return new WP_Error( 'forbidden', 'You cannot create terms in this taxonomy.' );
+        $name = isset( $args['name'] ) ? sanitize_text_field( $args['name'] ) : '';
+        if ( '' === $name ) return new WP_Error( 'invalid_name', 'Term name is required.' );
+        $data = array();
+        if ( ! empty( $args['slug'] ) ) $data['slug'] = sanitize_title( $args['slug'] );
+        if ( array_key_exists( 'description', $args ) ) $data['description'] = sanitize_textarea_field( $args['description'] );
+        if ( isset( $args['parent'] ) ) $data['parent'] = absint( $args['parent'] );
+        $result = wp_insert_term( $name, $taxonomy->name, $data );
+        if ( is_wp_error( $result ) ) return $result;
+        return self::term_record( get_term( $result['term_id'], $taxonomy->name ) );
+    }
+
+    private static function update_term( array $args ) {
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        $term_id = isset( $args['term_id'] ) ? absint( $args['term_id'] ) : 0;
+        if ( ! $taxonomy || ! term_exists( $term_id, $taxonomy->name ) ) return new WP_Error( 'not_found', 'Taxonomy term not found.' );
+        if ( ! current_user_can( $taxonomy->cap->edit_terms ) ) return new WP_Error( 'forbidden', 'You cannot edit terms in this taxonomy.' );
+        $data = array();
+        if ( array_key_exists( 'name', $args ) ) $data['name'] = sanitize_text_field( $args['name'] );
+        if ( array_key_exists( 'slug', $args ) ) $data['slug'] = sanitize_title( $args['slug'] );
+        if ( array_key_exists( 'description', $args ) ) $data['description'] = sanitize_textarea_field( $args['description'] );
+        if ( array_key_exists( 'parent', $args ) ) $data['parent'] = absint( $args['parent'] );
+        if ( empty( $data ) ) return new WP_Error( 'no_changes', 'No term fields were supplied.' );
+        $result = wp_update_term( $term_id, $taxonomy->name, $data );
+        if ( is_wp_error( $result ) ) return $result;
+        return self::term_record( get_term( $term_id, $taxonomy->name ) );
+    }
+
+    private static function delete_term( array $args ) {
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        $term_id = isset( $args['term_id'] ) ? absint( $args['term_id'] ) : 0;
+        if ( ! $taxonomy || ! term_exists( $term_id, $taxonomy->name ) ) return new WP_Error( 'not_found', 'Taxonomy term not found.' );
+        if ( ! self::confirm( $args ) ) return new WP_Error( 'confirmation_required', 'Term deletion requires confirm=true.' );
+        if ( ! current_user_can( $taxonomy->cap->delete_terms ) ) return new WP_Error( 'forbidden', 'You cannot delete terms in this taxonomy.' );
+        $result = wp_delete_term( $term_id, $taxonomy->name );
+        if ( is_wp_error( $result ) || ! $result ) return is_wp_error( $result ) ? $result : new WP_Error( 'delete_failed', 'WordPress could not delete the term.' );
+        return array( 'success' => true, 'taxonomy' => $taxonomy->name, 'term_id' => $term_id, 'deleted_permanently' => true );
+    }
+
+    private static function assign_terms( array $args ) {
+        $post_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
+        $post = get_post( $post_id );
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        if ( ! self::allowed_content( $post ) || ! $taxonomy || ! is_object_in_taxonomy( $post->post_type, $taxonomy->name ) ) return new WP_Error( 'invalid_target', 'Content or taxonomy assignment target is invalid.' );
+        if ( ! current_user_can( 'edit_post', $post_id ) || ! current_user_can( $taxonomy->cap->assign_terms ) ) return new WP_Error( 'forbidden', 'You cannot assign these terms.' );
+        $term_ids = isset( $args['term_ids'] ) && is_array( $args['term_ids'] ) ? array_values( array_filter( array_map( 'absint', $args['term_ids'] ) ) ) : array();
+        foreach ( $term_ids as $term_id ) if ( ! term_exists( $term_id, $taxonomy->name ) ) return new WP_Error( 'invalid_term', 'One or more term IDs do not exist in this taxonomy.' );
+        $result = wp_set_object_terms( $post_id, $term_ids, $taxonomy->name, ! empty( $args['append'] ) );
+        if ( is_wp_error( $result ) ) return $result;
+        return array( 'success' => true, 'post_id' => $post_id, 'taxonomy' => $taxonomy->name, 'term_ids' => array_map( 'intval', $result ) );
+    }
+
+    private static function revision_record( $revision, $full = false ) {
+        $item = array( 'id' => (int) $revision->ID, 'parent_id' => (int) $revision->post_parent, 'author_id' => (int) $revision->post_author, 'date_gmt' => $revision->post_date_gmt, 'modified_gmt' => $revision->post_modified_gmt, 'title' => $revision->post_title );
+        if ( $full ) $item += array( 'content' => $revision->post_content, 'excerpt' => $revision->post_excerpt );
+        return $item;
+    }
+
+    private static function revision( $id ) {
+        $revision = wp_get_post_revision( $id );
+        if ( ! $revision || ! current_user_can( 'edit_post', $revision->post_parent ) ) return false;
+        return $revision;
+    }
+
+    private static function list_revisions( array $args ) {
+        $post_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
+        if ( ! get_post( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) return new WP_Error( 'forbidden', 'Content not found or not editable.' );
+        $per_page = min( 50, max( 1, isset( $args['per_page'] ) ? absint( $args['per_page'] ) : 10 ) );
+        $page = max( 1, isset( $args['page'] ) ? absint( $args['page'] ) : 1 );
+        $all = wp_get_post_revisions( $post_id, array( 'order' => 'DESC', 'orderby' => 'date ID' ) );
+        $total = count( $all );
+        $slice = array_slice( array_values( $all ), ( $page - 1 ) * $per_page, $per_page );
+        return array( 'items' => array_map( array( __CLASS__, 'revision_record' ), $slice ), 'page' => $page, 'per_page' => $per_page, 'total' => $total, 'total_pages' => (int) ceil( $total / $per_page ) );
+    }
+
+    private static function get_revision( array $args ) {
+        $revision = self::revision( isset( $args['revision_id'] ) ? absint( $args['revision_id'] ) : 0 );
+        return $revision ? self::revision_record( $revision, true ) : new WP_Error( 'not_found', 'Revision not found or not editable.' );
+    }
+
+    private static function restore_revision( array $args ) {
+        $revision = self::revision( isset( $args['revision_id'] ) ? absint( $args['revision_id'] ) : 0 );
+        if ( ! $revision ) return new WP_Error( 'not_found', 'Revision not found or not editable.' );
+        $result = wp_restore_post_revision( $revision->ID );
+        if ( ! $result || is_wp_error( $result ) ) return is_wp_error( $result ) ? $result : new WP_Error( 'restore_failed', 'WordPress could not restore the revision.' );
+        return array( 'success' => true, 'revision_id' => (int) $revision->ID, 'post_id' => (int) $revision->post_parent );
+    }
+
+    private static function delete_revision( array $args ) {
+        $revision = self::revision( isset( $args['revision_id'] ) ? absint( $args['revision_id'] ) : 0 );
+        if ( ! $revision ) return new WP_Error( 'not_found', 'Revision not found or not editable.' );
+        if ( ! self::confirm( $args ) ) return new WP_Error( 'confirmation_required', 'Revision deletion requires confirm=true.' );
+        if ( ! current_user_can( 'delete_post', $revision->post_parent ) ) return new WP_Error( 'forbidden', 'You cannot delete this revision.' );
+        $result = wp_delete_post_revision( $revision->ID );
+        if ( ! $result ) return new WP_Error( 'delete_failed', 'WordPress could not delete the revision.' );
+        return array( 'success' => true, 'revision_id' => (int) $revision->ID, 'deleted_permanently' => true );
+    }
+
+    private static function list_acf_field_groups() {
+        if ( ! function_exists( 'acf_get_field_groups' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidd
