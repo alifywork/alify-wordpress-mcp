@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 1.6.0 — Tool Catalog
+# WP ChatGPT MCP 1.7.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -190,6 +190,43 @@ These tools appear only when Elementor is active.
 - `wordpress.elementor_clear_cache`
 
 Elementor data is managed through Elementor's document/widget APIs. Whole-document replacement requires the latest SHA-256 returned by `wordpress.elementor_get_document` plus `confirm=true`. Element deletion and cache clearing also require explicit confirmation.
+
+## WPBakery builder
+
+- `wordpress.wpbakery_status`
+- `wordpress.wpbakery_get_document`
+- `wordpress.wpbakery_enable_document`
+- `wordpress.wpbakery_replace_document`
+- `wordpress.wpbakery_add_element`
+
+## Divi builder
+
+- `wordpress.divi_status`
+- `wordpress.divi_get_document`
+- `wordpress.divi_enable_document`
+- `wordpress.divi_replace_document`
+- `wordpress.divi_add_legacy_module`
+- `wordpress.divi_add_block`
+
+## Muffin Builder / BeBuilder
+
+- `wordpress.muffin_status`
+- `wordpress.muffin_get_document`
+- `wordpress.muffin_replace_document`
+- `wordpress.muffin_append_section`
+- `wordpress.muffin_update_item`
+- `wordpress.muffin_delete_item`
+
+## Theme developer
+
+- `wordpress.theme_dev_read_file`
+- `wordpress.theme_dev_create_theme`
+- `wordpress.theme_dev_create_child_theme`
+- `wordpress.theme_dev_create_file`
+- `wordpress.theme_dev_update_file`
+- `wordpress.theme_dev_delete_file`
+
+Theme developer writes require WordPress theme-editing capabilities and file modifications to be enabled. New files never overwrite existing files. Existing-file updates/deletes require the latest SHA-256 from a prior read, and destructive operations require `confirm=true`.
 
 ## WooCommerce integration
 
