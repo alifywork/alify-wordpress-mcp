@@ -132,6 +132,8 @@ class WPCMCP_DB {
         );
     }
 
+
+
     public static function maintenance() {
         self::prune_logs();
         self::prune_oauth_records();
@@ -150,6 +152,9 @@ class WPCMCP_DB {
             )
         ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
+        // Remove abandoned dynamically registered clients only when they have never
+        // produced an authorization code or token. This limits unauthenticated DCR
+        // database growth without deleting connection history.
         $wpdb->query(
             $wpdb->prepare(
                 'DELETE c FROM ' . self::table( 'clients' ) . ' c '
