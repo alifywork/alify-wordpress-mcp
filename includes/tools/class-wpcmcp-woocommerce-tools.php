@@ -214,4 +214,45 @@ class WPCMCP_WooCommerce_Tools {
         if ( ! self::available() ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
         if ( ! self::can_manage_orders() ) return new WP_Error( 'forbidden', 'You cannot update WooCommerce orders.' );
         $order = wc_get_order( isset( $args['order_id'] ) ? absint( $args['order_id'] ) : 0 );
-        if ( ! $order ) retur
+        if ( ! $order ) return new WP_Error( 'not_found', 'WooCommerce order not found.' );
+        $status = isset( $args['status'] ) ? sanitize_key( preg_replace( '/^wc-/', '', $args['status'] ) ) : '';
+        $allowed = array_map( static function ( $value ) { return preg_replace( '/^wc-/', '', $value ); }, array_keys( wc_get_order_statuses() ) );
+        if ( ! in_array( $status, $allowed, true ) ) return new WP_Error( 'invalid_status', 'Unsupported WooCommerce order status.' );
+        try {
+            $order->update_status( $status, isset( $args['note'] ) ? sanitize_textarea_field( $args['note'] ) : '', ! empty( $args['manual'] ) );
+            return self::order_record( wc_get_order( $order->get_id() ) );
+        } catch ( Exception $e ) {
+            return new WP_Error( 'order_update_failed', $e->getMessage() );
+        }
+    }
+
+    private static function customer_record( $customer ) {
+        return array( 'id' => $customer->get_id(), 'username' => $customer->get_username(), 'display_name' => trim( $customer->get_first_name() . ' ' . $customer->get_last_name() ), 'company' => $customer->get_billing_company(), 'country' => $customer->get_billing_country(), 'order_count' => $customer->get_order_count(), 'total_spent' => $customer->get_total_spent(), 'created_gmt' => $customer->get_date_created() ? gmdate( 'Y-m-d H:i:s', $customer->get_date_created()->getTimestamp() ) : null );
+    }
+
+    private static function list_customers( array $args ) {
+        if ( ! class_exists( 'WC_Customer' ) ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! current_user_can( 'list_users' ) ) return new WP_Error( 'forbidden', 'You cannot inspect WooCommerce customers.' );
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $query = array( 'number' => $per_page, 'offset' => ( $page - 1 ) * $per_page, 'role__in' => array( 'customer', 'subscriber' ), 'orderby' => 'registered', 'order' => 'DESC', 'count_total' => true );
+        if ( ! empty( $args['search'] ) ) $query['search'] = '*' . sanitize_text_field( $args['search'] ) . '*';
+        $users = new WP_User_Query( $query );
+        $items = array();
+        foreach ( $users->get_results() as $user ) $items[] = self::customer_record( new WC_Customer( $user->ID ) );
+        $total = (int) $users->get_total();
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => $total, 'total_pages' => (int) ceil( $total / $per_page ) );
+    }
+
+    private static function get_customer( array $args ) {
+        if ( ! class_exists( 'WC_Customer' ) ) return new WP_Error( 'woocommerce_unavailable', 'WooCommerce is not active.' );
+        if ( ! current_user_can( 'list_users' ) ) return new WP_Error( 'forbidden', 'You cannot inspect WooCommerce customers.' );
+        $id = isset( $args['customer_id'] ) ? absint( $args['customer_id'] ) : 0;
+        if ( ! get_user_by( 'id', $id ) ) return new WP_Error( 'not_found', 'WooCommerce customer not found.' );
+        try {
+            return self::customer_record( new WC_Customer( $id ) );
+        } catch ( Exception $e ) {
+            return new WP_Error( 'not_found', 'WooCommerce customer not found.' );
+        }
+    }
+}
