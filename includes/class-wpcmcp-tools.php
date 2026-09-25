@@ -805,3 +805,242 @@ class WPCMCP_Tools {
         );
     }
 
+    private static function image_extension_for_mime( $mime, array $allowed_mimes ) {
+        foreach ( $allowed_mimes as $extensions => $allowed_mime ) {
+            if ( $mime === $allowed_mime && 0 === strpos( $allowed_mime, 'image/' ) ) {
+                $parts = explode( '|', $extensions );
+                return sanitize_key( reset( $parts ) );
+            }
+        }
+        return '';
+    }
+
+    private static function set_featured_image( array $args ) {
+        $post_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
+        $media_id = isset( $args['media_id'] ) ? absint( $args['media_id'] ) : 0;
+        $post = get_post( $post_id );
+        $media = get_post( $media_id );
+
+        if ( ! $post || ! self::allowed_post_type( $post->post_type ) ) {
+            return new WP_Error( 'not_found', 'Target post, page, or custom content was not found.' );
+        }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return new WP_Error( 'forbidden', 'You cannot edit the target content.' );
+        }
+        if ( ! post_type_supports( $post->post_type, 'thumbnail' ) ) {
+            return new WP_Error( 'thumbnail_not_supported', 'This content type does not support featured images.' );
+        }
+        if ( ! $media || 'attachment' !== $media->post_type || ! wp_attachment_is_image( $media_id ) ) {
+            return new WP_Error( 'invalid_media', 'The supplied media ID is not an image attachment.' );
+        }
+        if ( ! current_user_can( 'read_post', $media_id ) ) {
+            return new WP_Error( 'forbidden', 'You cannot use this media attachment.' );
+        }
+
+        $previous_id = (int) get_post_thumbnail_id( $post_id );
+        if ( $previous_id === $media_id ) {
+            return array(
+                'success'                    => true,
+                'changed'                    => false,
+                'post_id'                    => $post_id,
+                'post_type'                  => $post->post_type,
+                'featured_media_id'          => $media_id,
+                'previous_featured_media_id' => $previous_id,
+                'featured_media_url'         => wp_get_attachment_url( $media_id ),
+            );
+        }
+
+        $updated = set_post_thumbnail( $post_id, $media_id );
+        if ( false === $updated && (int) get_post_thumbnail_id( $post_id ) !== $media_id ) {
+            return new WP_Error( 'featured_image_failed', 'WordPress could not set the featured image.' );
+        }
+
+        return array(
+            'success'                    => true,
+            'changed'                    => true,
+            'post_id'                    => $post_id,
+            'post_type'                  => $post->post_type,
+            'featured_media_id'          => $media_id,
+            'previous_featured_media_id' => $previous_id,
+            'featured_media_url'         => wp_get_attachment_url( $media_id ),
+        );
+    }
+
+    private static function media_record( $post, $full = false ) {
+        $record = array(
+            'id'          => (int) $post->ID,
+            'title'       => get_the_title( $post ),
+            'mime_type'   => $post->post_mime_type,
+            'url'         => wp_get_attachment_url( $post->ID ),
+            'alt_text'    => get_post_meta( $post->ID, '_wp_attachment_image_alt', true ),
+            'caption'     => $post->post_excerpt,
+            'date_gmt'    => $post->post_date_gmt,
+            'modified_gmt'=> $post->post_modified_gmt,
+        );
+        if ( $full ) {
+            $record['description'] = $post->post_content;
+            $record['metadata'] = wp_get_attachment_metadata( $post->ID );
+        }
+        return $record;
+    }
+
+    private static function list_users( array $args ) {
+        if ( ! current_user_can( 'list_users' ) ) return new WP_Error( 'forbidden', 'You cannot list WordPress users.' );
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $query_args = array(
+            'number'  => $per_page,
+            'offset'  => ( $page - 1 ) * $per_page,
+            'orderby' => 'registered',
+            'order'   => 'DESC',
+            'count_total' => true,
+        );
+        if ( ! empty( $args['search'] ) ) $query_args['search'] = '*' . sanitize_text_field( $args['search'] ) . '*';
+        if ( ! empty( $args['role'] ) ) $query_args['role'] = sanitize_key( $args['role'] );
+
+        $query = new WP_User_Query( $query_args );
+        $items = array();
+        foreach ( $query->get_results() as $user ) $items[] = self::user_record( $user );
+        $total = (int) $query->get_total();
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => $total, 'total_pages' => (int) ceil( $total / $per_page ) );
+    }
+
+    private static function get_user( array $args ) {
+        if ( ! current_user_can( 'list_users' ) ) return new WP_Error( 'forbidden', 'You cannot read WordPress users.' );
+        $user = get_user_by( 'id', isset( $args['id'] ) ? absint( $args['id'] ) : 0 );
+        if ( ! $user ) return new WP_Error( 'not_found', 'User not found.' );
+        return self::user_record( $user, true );
+    }
+
+    private static function user_record( $user, $full = false ) {
+        $record = array(
+            'id'           => (int) $user->ID,
+            'username'     => $user->user_login,
+            'display_name' => $user->display_name,
+            'roles'        => array_values( $user->roles ),
+            'registered'   => $user->user_registered,
+        );
+        if ( $full ) {
+            $record['first_name'] = get_user_meta( $user->ID, 'first_name', true );
+            $record['last_name'] = get_user_meta( $user->ID, 'last_name', true );
+            $record['description'] = get_user_meta( $user->ID, 'description', true );
+        }
+        return $record;
+    }
+
+    private static function list_plugins() {
+        if ( ! current_user_can( 'activate_plugins' ) && ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot inspect installed plugins.' );
+        if ( ! function_exists( 'get_plugins' ) ) require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        $plugins = get_plugins();
+        $items = array();
+        foreach ( $plugins as $file => $data ) {
+            $items[] = array(
+                'plugin'  => $file,
+                'name'    => isset( $data['Name'] ) ? $data['Name'] : $file,
+                'version' => isset( $data['Version'] ) ? $data['Version'] : '',
+                'active'  => is_plugin_active( $file ),
+                'network_active' => is_multisite() ? is_plugin_active_for_network( $file ) : false,
+            );
+        }
+        usort( $items, static function ( $a, $b ) { return strcasecmp( $a['name'], $b['name'] ); } );
+        return array( 'plugins' => $items );
+    }
+
+    private static function get_plugin_status( array $args ) {
+        $all = self::list_plugins();
+        if ( is_wp_error( $all ) ) return $all;
+        $needle = strtolower( sanitize_text_field( isset( $args['plugin'] ) ? $args['plugin'] : '' ) );
+        foreach ( $all['plugins'] as $plugin ) {
+            if ( strtolower( $plugin['plugin'] ) === $needle || false !== strpos( strtolower( $plugin['plugin'] ), $needle ) || false !== strpos( strtolower( $plugin['name'] ), $needle ) ) {
+                return $plugin;
+            }
+        }
+        return new WP_Error( 'not_found', 'Plugin not found.' );
+    }
+
+    private static function get_active_theme() {
+        $theme = wp_get_theme();
+        return self::theme_record( $theme, true );
+    }
+
+    private static function list_themes() {
+        if ( ! current_user_can( 'switch_themes' ) && ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot inspect installed themes.' );
+        $active = wp_get_theme();
+        $items = array();
+        foreach ( wp_get_themes() as $stylesheet => $theme ) {
+            $record = self::theme_record( $theme );
+            $record['active'] = $active->get_stylesheet() === $stylesheet;
+            $items[] = $record;
+        }
+        usort( $items, static function ( $a, $b ) { return strcasecmp( $a['name'], $b['name'] ); } );
+        return array( 'themes' => $items );
+    }
+
+    private static function theme_record( $theme, $active = false ) {
+        return array(
+            'name'       => $theme->get( 'Name' ),
+            'version'    => $theme->get( 'Version' ),
+            'stylesheet' => $theme->get_stylesheet(),
+            'template'   => $theme->get_template(),
+            'author'     => wp_strip_all_tags( $theme->get( 'Author' ) ),
+            'active'     => (bool) $active,
+        );
+    }
+
+    private static function list_terms( $taxonomy, array $args ) {
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $hide_empty = isset( $args['hide_empty'] ) ? (bool) $args['hide_empty'] : false;
+        $base = array(
+            'taxonomy'   => $taxonomy,
+            'hide_empty' => $hide_empty,
+            'search'     => isset( $args['search'] ) ? sanitize_text_field( $args['search'] ) : '',
+        );
+        $count = wp_count_terms( $taxonomy, array( 'hide_empty' => $hide_empty, 'search' => isset( $args['search'] ) ? sanitize_text_field( $args['search'] ) : '' ) );
+        if ( is_wp_error( $count ) ) return $count;
+        $terms = get_terms( $base + array( 'number' => $per_page, 'offset' => ( $page - 1 ) * $per_page, 'orderby' => 'name', 'order' => 'ASC' ) );
+        if ( is_wp_error( $terms ) ) return $terms;
+        $items = array();
+        foreach ( $terms as $term ) {
+            $items[] = array( 'id' => (int) $term->term_id, 'name' => $term->name, 'slug' => $term->slug, 'count' => (int) $term->count, 'description' => $term->description );
+        }
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => (int) $count, 'total_pages' => (int) ceil( $count / $per_page ) );
+    }
+
+    private static function list_comments( array $args ) {
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $status = isset( $args['status'] ) ? sanitize_key( $args['status'] ) : 'approve';
+        if ( ! current_user_can( 'moderate_comments' ) ) $status = 'approve';
+        if ( ! in_array( $status, array( 'approve', 'hold', 'spam', 'trash', 'all' ), true ) ) $status = 'approve';
+
+        $query_args = array(
+            'number'  => $per_page,
+            'offset'  => ( $page - 1 ) * $per_page,
+            'status'  => $status,
+            'orderby' => 'comment_date_gmt',
+            'order'   => 'DESC',
+        );
+        if ( ! empty( $args['post_id'] ) ) $query_args['post_id'] = absint( $args['post_id'] );
+        if ( ! empty( $args['search'] ) ) $query_args['search'] = sanitize_text_field( $args['search'] );
+
+        $comments = get_comments( $query_args );
+        $count_args = $query_args;
+        unset( $count_args['number'], $count_args['offset'] );
+        $count_args['count'] = true;
+        $total = (int) get_comments( $count_args );
+        $items = array();
+        foreach ( $comments as $comment ) $items[] = self::comment_record( $comment );
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => $total, 'total_pages' => (int) ceil( $total / $per_page ) );
+    }
+
+    private static function get_comment( array $args ) {
+        $comment = get_comment( isset( $args['id'] ) ? absint( $args['id'] ) : 0 );
+        if ( ! $comment ) return new WP_Error( 'not_found', 'Comment not found.' );
+        $status = wp_get_comment_status( $comment );
+        if ( 'approved' !== $status && ! current_user_can( 'moderate_comments' ) ) return new WP_Error( 'forbidden', 'You cannot read this comment.' );
+        return self::comment_record( $comment, true );
+    }
+
+    private static function comment_record( $comment, $full = false ) {
+        $record = array(
