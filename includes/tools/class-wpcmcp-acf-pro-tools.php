@@ -398,3 +398,109 @@ class WPCMCP_ACF_Pro_Tools {
         $field = acf_get_field( is_numeric( $args['field'] ) ? absint( $args['field'] ) : sanitize_text_field( $args['field'] ) );
         if ( ! $field ) return new WP_Error( 'not_found', 'ACF field not found.' );
         $field = self::merge_field_settings( $field, $args );
+        if ( is_wp_error( $field ) ) return $field;
+        $saved = acf_update_field( $field );
+        return $saved ?: new WP_Error( 'acf_save_failed', 'ACF could not update the field.' );
+    }
+
+    private static function duplicate_field( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_duplicate_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF duplicate field API unavailable.' );
+        $parent = ! empty( $args['parent'] ) ? self::resolve_parent_id( $args['parent'] ) : 0;
+        if ( ! empty( $args['parent'] ) && ! $parent ) return new WP_Error( 'invalid_parent', 'ACF parent could not be resolved.' );
+        $saved = acf_duplicate_field( $args['field'], $parent );
+        return $saved ?: new WP_Error( 'duplicate_failed', 'ACF could not duplicate the field.' );
+    }
+
+    private static function trash_field( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_trash_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF trash field API unavailable.' );
+        return array( 'success' => (bool) acf_trash_field( $args['field'] ) );
+    }
+
+    private static function delete_field_definition( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Permanent ACF field deletion requires confirm=true.' );
+        if ( ! function_exists( 'acf_delete_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF delete field API unavailable.' );
+        return array( 'success' => (bool) acf_delete_field( $args['field'] ), 'deleted_permanently' => true );
+    }
+
+    private static function set_location_rules( array $args ) {
+        $args['settings'] = array();
+        return self::update_group( $args );
+    }
+
+    private static function set_conditional_logic( array $args ) {
+        $args['settings'] = array( 'conditional_logic' => $args['conditional_logic'] );
+        return self::update_field_definition( $args );
+    }
+
+    private static function update_values( array $args ) {
+        if ( ! function_exists( 'update_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF value API unavailable.' );
+        $target = self::normalize_target( $args['target'] );
+        if ( is_wp_error( $target ) ) return $target;
+        if ( ! self::target_capability_check( $target, true ) ) return new WP_Error( 'forbidden', 'You cannot update ACF values on this target.' );
+        $results = array();
+        foreach ( (array) $args['fields'] as $selector => $value ) {
+            $selector = sanitize_text_field( $selector );
+            if ( '' === $selector ) continue;
+            $before = function_exists( 'get_field' ) ? get_field( $selector, $target, false ) : null;
+            $ok = update_field( $selector, $value, $target );
+            $after = function_exists( 'get_field' ) ? get_field( $selector, $target, false ) : null;
+            $results[ $selector ] = array( 'success' => false !== $ok || $before == $after, 'changed' => $before != $after );
+        }
+        return array( 'target' => $target, 'results' => $results );
+    }
+
+    private static function delete_value_tool( array $args ) {
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Deleting an ACF value requires confirm=true.' );
+        if ( ! function_exists( 'delete_field' ) ) return new WP_Error( 'acf_unavailable', 'ACF delete-value API unavailable.' );
+        $target = self::normalize_target( $args['target'] );
+        if ( is_wp_error( $target ) ) return $target;
+        if ( ! self::target_capability_check( $target, true ) ) return new WP_Error( 'forbidden', 'You cannot delete ACF values from this target.' );
+        return array( 'success' => (bool) delete_field( sanitize_text_field( $args['field'] ), $target ), 'target' => $target );
+    }
+
+    private static function list_option_pages_managed() {
+        return array( 'option_pages' => get_option( self::OPTION_PAGES_OPTION, array() ) );
+    }
+
+    private static function save_option_page( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( ! function_exists( 'acf_add_options_page' ) ) return new WP_Error( 'acf_pro_required', 'ACF PRO option pages are unavailable.' );
+        $slug = sanitize_key( $args['menu_slug'] );
+        if ( ! $slug ) return new WP_Error( 'invalid_slug', 'A valid option-page menu_slug is required.' );
+        $settings = array(
+            'page_title' => sanitize_text_field( $args['page_title'] ),
+            'menu_title' => isset( $args['menu_title'] ) ? sanitize_text_field( $args['menu_title'] ) : sanitize_text_field( $args['page_title'] ),
+            'menu_slug' => $slug,
+            'capability' => isset( $args['capability'] ) ? sanitize_key( $args['capability'] ) : 'manage_options',
+            'redirect' => array_key_exists( 'redirect', $args ) ? (bool) $args['redirect'] : false,
+        );
+        foreach ( array( 'parent_slug', 'post_id', 'icon_url' ) as $field ) {
+            if ( isset( $args[ $field ] ) && '' !== (string) $args[ $field ] ) $settings[ $field ] = sanitize_text_field( $args[ $field ] );
+        }
+        if ( isset( $args['position'] ) ) $settings['position'] = (int) $args['position'];
+        if ( isset( $args['autoload'] ) ) $settings['autoload'] = (bool) $args['autoload'];
+        $pages = get_option( self::OPTION_PAGES_OPTION, array() );
+        $pages[ $slug ] = $settings;
+        update_option( self::OPTION_PAGES_OPTION, $pages, false );
+        return array( 'success' => true, 'menu_slug' => $slug, 'settings' => $settings );
+    }
+
+    private static function delete_option_page( array $args ) {
+        $cap = self::require_acf_admin();
+        if ( is_wp_error( $cap ) ) return $cap;
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Deleting an ACF option-page definition requires confirm=true.' );
+        $slug = sanitize_key( $args['menu_slug'] );
+        $pages = get_option( self::OPTION_PAGES_OPTION, array() );
+        if ( ! isset( $pages[ $slug ] ) ) return new WP_Error( 'not_managed', 'This option page is not managed by the MCP plugin.' );
+        unset( $pages[ $slug ] );
+        update_option( self::OPTION_PAGES_OPTION, $pages, false );
+        return array( 'success' => true, 'menu_slug' => $slug, 'stored_values_deleted' => false );
+    }
+}
