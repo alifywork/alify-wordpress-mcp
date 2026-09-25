@@ -342,3 +342,231 @@ class WPCMCP_Tools {
             case 'wordpress.upload_media_file':
                 return self::upload_media_file( $args );
             case 'wordpress.set_featured_image':
+                return self::set_featured_image( $args );
+            case 'wordpress.list_users':
+                return self::list_users( $args );
+            case 'wordpress.get_user':
+                return self::get_user( $args );
+            case 'wordpress.list_plugins':
+                return self::list_plugins();
+            case 'wordpress.get_plugin_status':
+                return self::get_plugin_status( $args );
+            case 'wordpress.get_active_theme':
+                return self::get_active_theme();
+            case 'wordpress.list_themes':
+                return self::list_themes();
+            case 'wordpress.list_categories':
+                return self::list_terms( 'category', $args );
+            case 'wordpress.list_tags':
+                return self::list_terms( 'post_tag', $args );
+            case 'wordpress.list_comments':
+                return self::list_comments( $args );
+            case 'wordpress.get_comment':
+                return self::get_comment( $args );
+
+            case 'wordpress.create_content':
+                return self::create_content( $args );
+            case 'wordpress.update_content':
+                return self::update_content( $args );
+            case 'wordpress.trash_content':
+                return self::trash_content( $args );
+            case 'wordpress.update_acf_field':
+                return self::update_acf_field( $args );
+            default:
+                foreach ( self::extension_classes() as $class ) {
+                    if ( class_exists( $class ) ) {
+                        $result = $class::execute( $name, $args );
+                        if ( null !== $result ) {
+                            return $result;
+                        }
+                    }
+                }
+                return new WP_Error( 'unknown_tool', 'Unknown MCP tool.' );
+        }
+    }
+
+    private static function site_info() {
+        return array(
+            'name'                => get_bloginfo( 'name' ),
+            'description'         => get_bloginfo( 'description' ),
+            'url'                 => home_url( '/' ),
+            'wordpress_version'   => get_bloginfo( 'version' ),
+            'php_version'         => PHP_VERSION,
+            'timezone'            => wp_timezone_string(),
+            'acf_available'       => function_exists( 'get_fields' ) && function_exists( 'update_field' ),
+            'mcp_plugin_version'  => WPCMCP_VERSION,
+            'mcp_modern_protocol' => defined( 'WPCMCP_VERSION' ) ? '2026-07-28' : '',
+        );
+    }
+
+    private static function wordpress_version() {
+        return array(
+            'wordpress_version' => get_bloginfo( 'version' ),
+            'php_version'       => PHP_VERSION,
+            'mcp_plugin_version'=> WPCMCP_VERSION,
+        );
+    }
+
+    private static function list_post_types() {
+        $objects = get_post_types( array( 'public' => true ), 'objects' );
+        $out = array();
+        foreach ( $objects as $name => $obj ) {
+            if ( 'attachment' === $name ) continue;
+            $out[] = array(
+                'name'         => $name,
+                'label'        => $obj->label,
+                'rest_base'    => $obj->rest_base ? $obj->rest_base : $name,
+                'hierarchical' => (bool) $obj->hierarchical,
+            );
+        }
+        return array( 'post_types' => $out );
+    }
+
+    private static function allowed_post_type( $type ) {
+        $obj = get_post_type_object( $type );
+        return $obj && $obj->public && 'attachment' !== $type;
+    }
+
+    private static function search_content( array $args ) {
+        $types = isset( $args['post_types'] ) && is_array( $args['post_types'] ) ? array_map( 'sanitize_key', $args['post_types'] ) : array( 'post', 'page' );
+        $types = array_values( array_filter( $types, array( __CLASS__, 'allowed_post_type' ) ) );
+        if ( empty( $types ) ) return new WP_Error( 'invalid_post_type', 'No permitted public post types were supplied.' );
+
+        $status = isset( $args['status'] ) ? sanitize_key( $args['status'] ) : 'publish';
+        $allowed_statuses = current_user_can( 'edit_posts' ) ? array( 'publish', 'draft', 'pending', 'private', 'future' ) : array( 'publish' );
+        if ( ! in_array( $status, $allowed_statuses, true ) ) $status = 'publish';
+
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $query = new WP_Query(
+            array(
+                'post_type'      => $types,
+                'post_status'    => $status,
+                's'              => isset( $args['search'] ) ? sanitize_text_field( $args['search'] ) : '',
+                'posts_per_page' => $per_page,
+                'paged'          => $page,
+                'orderby'        => 'modified',
+                'order'          => 'DESC',
+                'no_found_rows'  => false,
+            )
+        );
+
+        $items = array();
+        foreach ( $query->posts as $post ) {
+            if ( ! current_user_can( 'read_post', $post->ID ) ) continue;
+            $items[] = self::content_summary( $post );
+        }
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => (int) $query->found_posts, 'total_pages' => (int) $query->max_num_pages );
+    }
+
+    private static function list_typed_content( $type, array $args ) {
+        $args['post_types'] = array( $type );
+        return self::search_content( $args );
+    }
+
+    private static function content_summary( $post ) {
+        return array(
+            'id'           => (int) $post->ID,
+            'type'         => $post->post_type,
+            'status'       => $post->post_status,
+            'title'        => get_the_title( $post ),
+            'slug'         => $post->post_name,
+            'modified_gmt' => $post->post_modified_gmt,
+            'url'          => get_permalink( $post ),
+            'excerpt'      => wp_trim_words( wp_strip_all_tags( $post->post_excerpt ? $post->post_excerpt : $post->post_content ), 45 ),
+        );
+    }
+
+    private static function get_content( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || ! self::allowed_post_type( $post->post_type ) ) return new WP_Error( 'not_found', 'Content not found.' );
+        if ( ! current_user_can( 'read_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot read this content.' );
+        return array(
+            'id'           => $id,
+            'type'         => $post->post_type,
+            'status'       => $post->post_status,
+            'title'        => get_the_title( $post ),
+            'slug'         => $post->post_name,
+            'content'      => $post->post_content,
+            'excerpt'      => $post->post_excerpt,
+            'author_id'    => (int) $post->post_author,
+            'date_gmt'     => $post->post_date_gmt,
+            'modified_gmt' => $post->post_modified_gmt,
+            'url'          => get_permalink( $post ),
+        );
+    }
+
+    private static function get_typed_content( $type, array $args ) {
+        $result = self::get_content( $args );
+        if ( is_wp_error( $result ) ) return $result;
+        if ( $type !== $result['type'] ) return new WP_Error( 'wrong_content_type', 'The requested ID is not a ' . $type . '.' );
+        return $result;
+    }
+
+    private static function get_acf_fields( array $args ) {
+        if ( ! function_exists( 'get_fields' ) ) return array( 'available' => false, 'message' => 'Advanced Custom Fields is not active.' );
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        if ( ! get_post( $id ) || ! current_user_can( 'read_post', $id ) ) return new WP_Error( 'forbidden', 'Content not found or not readable.' );
+        $fields = get_fields( $id );
+        return array( 'available' => true, 'id' => $id, 'fields' => $fields ? $fields : (object) array() );
+    }
+
+    private static function create_content( array $args ) {
+        $type = isset( $args['post_type'] ) ? sanitize_key( $args['post_type'] ) : 'post';
+        if ( ! self::allowed_post_type( $type ) ) return new WP_Error( 'invalid_post_type', 'This post type is not allowed.' );
+        $obj = get_post_type_object( $type );
+        $create_cap = isset( $obj->cap->create_posts ) ? $obj->cap->create_posts : $obj->cap->edit_posts;
+        if ( ! current_user_can( $create_cap ) ) return new WP_Error( 'forbidden', 'You cannot create this content type.' );
+
+        $status = isset( $args['status'] ) ? sanitize_key( $args['status'] ) : 'draft';
+        if ( ! in_array( $status, array( 'draft', 'pending', 'private', 'publish' ), true ) ) $status = 'draft';
+        if ( 'publish' === $status && ! current_user_can( $obj->cap->publish_posts ) ) return new WP_Error( 'forbidden', 'You cannot publish this content type.' );
+
+        $postarr = array(
+            'post_type'    => $type,
+            'post_title'   => isset( $args['title'] ) ? sanitize_text_field( $args['title'] ) : '',
+            'post_content' => isset( $args['content'] ) ? wp_kses_post( $args['content'] ) : '',
+            'post_excerpt' => isset( $args['excerpt'] ) ? sanitize_textarea_field( $args['excerpt'] ) : '',
+            'post_status'  => $status,
+        );
+        if ( ! empty( $args['slug'] ) ) $postarr['post_name'] = sanitize_title( $args['slug'] );
+
+        $id = wp_insert_post( wp_slash( $postarr ), true );
+        if ( is_wp_error( $id ) ) return $id;
+        return array( 'success' => true, 'id' => $id, 'type' => $type, 'status' => get_post_status( $id ), 'title' => get_the_title( $id ), 'url' => get_permalink( $id ) );
+    }
+
+    private static function create_typed_content( $type, array $args ) {
+        $args['post_type'] = $type;
+        return self::create_content( $args );
+    }
+
+    private static function update_content( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || ! self::allowed_post_type( $post->post_type ) ) return new WP_Error( 'not_found', 'Content not found.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot edit this content.' );
+
+        $postarr = array( 'ID' => $id );
+        if ( array_key_exists( 'title', $args ) ) $postarr['post_title'] = sanitize_text_field( $args['title'] );
+        if ( array_key_exists( 'content', $args ) ) $postarr['post_content'] = wp_kses_post( $args['content'] );
+        if ( array_key_exists( 'excerpt', $args ) ) $postarr['post_excerpt'] = sanitize_textarea_field( $args['excerpt'] );
+        if ( array_key_exists( 'slug', $args ) ) $postarr['post_name'] = sanitize_title( $args['slug'] );
+        if ( array_key_exists( 'status', $args ) ) {
+            $status = sanitize_key( $args['status'] );
+            if ( ! in_array( $status, array( 'draft', 'pending', 'private', 'publish' ), true ) ) return new WP_Error( 'invalid_status', 'Unsupported post status.' );
+            $obj = get_post_type_object( $post->post_type );
+            if ( 'publish' === $status && ! current_user_can( $obj->cap->publish_posts ) ) return new WP_Error( 'forbidden', 'You cannot publish this content type.' );
+            $postarr['post_status'] = $status;
+        }
+        if ( 1 === count( $postarr ) ) return new WP_Error( 'no_changes', 'No fields were supplied to update.' );
+
+        $result = wp_update_post( wp_slash( $postarr ), true );
+        if ( is_wp_error( $result ) ) return $result;
+        return array( 'success' => true, 'id' => $id, 'type' => $post->post_type, 'status' => get_post_status( $id ), 'title' => get_the_title( $id ), 'url' => get_permalink( $id ) );
+    }
+
+    private static function update_typed_content( $type, array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
