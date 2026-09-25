@@ -570,3 +570,238 @@ class WPCMCP_Tools {
     private static function update_typed_content( $type, array $args ) {
         $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
         $post = get_post( $id );
+        if ( ! $post || $type !== $post->post_type ) return new WP_Error( 'wrong_content_type', 'The requested ID is not a ' . $type . '.' );
+        return self::update_content( $args );
+    }
+
+    private static function trash_content( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || ! self::allowed_post_type( $post->post_type ) ) return new WP_Error( 'not_found', 'Content not found.' );
+        if ( ! current_user_can( 'delete_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot trash this content.' );
+        $title = get_the_title( $id );
+        $result = wp_trash_post( $id );
+        if ( ! $result ) return new WP_Error( 'trash_failed', 'WordPress could not move this content to Trash.' );
+        return array( 'success' => true, 'id' => $id, 'type' => $post->post_type, 'status' => 'trash', 'title' => $title );
+    }
+
+    private static function trash_typed_content( $type, array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || $type !== $post->post_type ) return new WP_Error( 'wrong_content_type', 'The requested ID is not a ' . $type . '.' );
+        return self::trash_content( $args );
+    }
+
+    private static function update_acf_field( array $args ) {
+        if ( ! function_exists( 'update_field' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $field = isset( $args['field'] ) ? sanitize_text_field( $args['field'] ) : '';
+        if ( ! $id || ! $field || ! get_post( $id ) ) return new WP_Error( 'invalid_arguments', 'A valid content ID and ACF field are required.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot edit this content.' );
+        $ok = update_field( $field, isset( $args['value'] ) ? $args['value'] : null, $id );
+        return array( 'success' => false !== $ok, 'id' => $id, 'field' => $field, 'value' => function_exists( 'get_field' ) ? get_field( $field, $id ) : $args['value'] );
+    }
+
+    private static function list_media( array $args ) {
+        $per_page = self::per_page( $args );
+        $page = self::page( $args );
+        $mime = isset( $args['mime_type'] ) ? sanitize_mime_type( $args['mime_type'] ) : '';
+        if ( isset( $args['mime_type'] ) && false === strpos( $args['mime_type'], '/' ) ) $mime = sanitize_key( $args['mime_type'] );
+
+        $query_args = array(
+            'post_type'      => 'attachment',
+            'post_status'    => 'inherit',
+            'posts_per_page' => $per_page,
+            'paged'          => $page,
+            's'              => isset( $args['search'] ) ? sanitize_text_field( $args['search'] ) : '',
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'no_found_rows'  => false,
+        );
+        if ( $mime ) $query_args['post_mime_type'] = $mime;
+        $query = new WP_Query( $query_args );
+
+        $items = array();
+        foreach ( $query->posts as $post ) {
+            if ( ! current_user_can( 'read_post', $post->ID ) ) continue;
+            $items[] = self::media_record( $post );
+        }
+        return array( 'items' => $items, 'page' => $page, 'per_page' => $per_page, 'total' => (int) $query->found_posts, 'total_pages' => (int) $query->max_num_pages );
+    }
+
+    private static function get_media( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || 'attachment' !== $post->post_type ) return new WP_Error( 'not_found', 'Media attachment not found.' );
+        if ( ! current_user_can( 'read_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot read this media item.' );
+        return self::media_record( $post, true );
+    }
+
+    private static function upload_media( array $args ) {
+        $url = isset( $args['url'] ) ? esc_url_raw( $args['url'], array( 'https' ) ) : '';
+        if ( ! $url || 'https' !== strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) ) || ! wp_http_validate_url( $url ) ) {
+            return new WP_Error( 'invalid_media_url', 'A valid public HTTPS image URL is required.' );
+        }
+
+        return self::sideload_media_from_url( $url, $args );
+    }
+
+    private static function upload_media_file( array $args ) {
+        $file = isset( $args['file'] ) && is_array( $args['file'] ) ? $args['file'] : array();
+        $url = isset( $file['download_url'] ) ? esc_url_raw( $file['download_url'], array( 'https' ) ) : '';
+        if ( ! $url || 'https' !== strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) ) || ! wp_http_validate_url( $url ) ) {
+            return new WP_Error( 'invalid_media_url', 'ChatGPT did not provide a valid temporary HTTPS file URL.' );
+        }
+
+        $file_id = isset( $file['file_id'] ) ? sanitize_text_field( $file['file_id'] ) : '';
+        if ( '' === $file_id || strlen( $file_id ) > 255 || preg_match( '/[\x00-\x1F\x7F]/', $file_id ) ) {
+            return new WP_Error( 'invalid_file_id', 'ChatGPT did not provide a valid file identifier.' );
+        }
+
+        $declared_mime = isset( $file['mime_type'] ) ? sanitize_mime_type( $file['mime_type'] ) : '';
+        if ( '' !== $declared_mime && 0 !== strpos( $declared_mime, 'image/' ) ) {
+            return new WP_Error( 'invalid_media_type', 'The supplied ChatGPT file is not an image.' );
+        }
+
+        $source_filename = isset( $file['file_name'] ) ? sanitize_file_name( $file['file_name'] ) : '';
+        return self::sideload_media_from_url( $url, $args, $source_filename );
+    }
+
+    private static function sideload_media_from_url( $url, array $args, $source_filename = '' ) {
+        if ( ! current_user_can( 'upload_files' ) ) {
+            return new WP_Error( 'forbidden', 'You cannot upload files to this WordPress site.' );
+        }
+
+        $parent_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
+        if ( $parent_id ) {
+            $parent = get_post( $parent_id );
+            if ( ! $parent || ! self::allowed_post_type( $parent->post_type ) ) {
+                return new WP_Error( 'invalid_parent', 'The supplied parent content does not exist or is not allowed.' );
+            }
+            if ( ! current_user_can( 'edit_post', $parent_id ) ) {
+                return new WP_Error( 'forbidden', 'You cannot attach media to this content.' );
+            }
+        }
+
+        if ( ! function_exists( 'wp_tempnam' ) || ! function_exists( 'wp_handle_sideload' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
+        if ( ! function_exists( 'media_handle_sideload' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+        }
+        if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+        }
+
+        $site_max_bytes = min( 10 * MB_IN_BYTES, (int) wp_max_upload_size() );
+        $max_bytes = max( 1, min( $site_max_bytes, (int) apply_filters( 'wpcmcp_max_media_upload_bytes', $site_max_bytes ) ) );
+        $tmp_file = wp_tempnam( 'wpcmcp-image' );
+        if ( ! $tmp_file ) {
+            return new WP_Error( 'temp_file_failed', 'WordPress could not create a temporary upload file.' );
+        }
+
+        $response = wp_safe_remote_get(
+            $url,
+            array(
+                'timeout'             => 30,
+                'redirection'         => 3,
+                'stream'              => true,
+                'filename'            => $tmp_file,
+                'limit_response_size' => $max_bytes + 1,
+            )
+        );
+
+        if ( is_wp_error( $response ) ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'media_download_failed', 'WordPress could not download the image from the supplied HTTPS source.' );
+        }
+
+        $status_code = (int) wp_remote_retrieve_response_code( $response );
+        if ( 200 !== $status_code ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'media_download_failed', 'The image server returned HTTP status ' . $status_code . '.' );
+        }
+
+        $file_size = file_exists( $tmp_file ) ? (int) filesize( $tmp_file ) : 0;
+        if ( $file_size < 1 || $file_size > $max_bytes ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'invalid_media_size', 'The downloaded image is empty or exceeds the permitted upload size.' );
+        }
+
+        $actual_mime = wp_get_image_mime( $tmp_file );
+        $allowed_mimes = get_allowed_mime_types();
+        if ( ! $actual_mime || 0 !== strpos( $actual_mime, 'image/' ) || ! in_array( $actual_mime, $allowed_mimes, true ) ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'invalid_media_type', 'The downloaded file is not an allowed raster image.' );
+        }
+
+        $extension = self::image_extension_for_mime( $actual_mime, $allowed_mimes );
+        if ( ! $extension ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'invalid_media_type', 'WordPress could not determine a safe extension for this image.' );
+        }
+
+        $requested_name = isset( $args['filename'] ) ? sanitize_file_name( $args['filename'] ) : '';
+        if ( '' === $requested_name && '' !== $source_filename ) {
+            $requested_name = sanitize_file_name( $source_filename );
+        }
+        if ( '' === $requested_name ) {
+            $url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
+            $requested_name = sanitize_file_name( wp_basename( $url_path ) );
+        }
+        $basename = sanitize_file_name( pathinfo( $requested_name, PATHINFO_FILENAME ) );
+        if ( '' === $basename ) {
+            $basename = 'image-' . gmdate( 'Ymd-His' );
+        }
+        $filename = $basename . '.' . $extension;
+
+        $checked = wp_check_filetype_and_ext( $tmp_file, $filename, $allowed_mimes );
+        if ( empty( $checked['type'] ) || 0 !== strpos( $checked['type'], 'image/' ) ) {
+            wp_delete_file( $tmp_file );
+            return new WP_Error( 'invalid_media_type', 'The image content does not match an allowed WordPress file type.' );
+        }
+        if ( ! empty( $checked['proper_filename'] ) ) {
+            $filename = sanitize_file_name( $checked['proper_filename'] );
+        }
+
+        $post_data = array();
+        if ( array_key_exists( 'title', $args ) ) {
+            $post_data['post_title'] = sanitize_text_field( $args['title'] );
+        }
+        if ( array_key_exists( 'caption', $args ) ) {
+            $post_data['post_excerpt'] = sanitize_textarea_field( $args['caption'] );
+        }
+        if ( array_key_exists( 'description', $args ) ) {
+            $post_data['post_content'] = wp_kses_post( $args['description'] );
+        }
+
+        $attachment_id = media_handle_sideload(
+            array(
+                'name'     => $filename,
+                'tmp_name' => $tmp_file,
+            ),
+            $parent_id,
+            null,
+            $post_data
+        );
+
+        if ( is_wp_error( $attachment_id ) ) {
+            if ( file_exists( $tmp_file ) ) {
+                wp_delete_file( $tmp_file );
+            }
+            return new WP_Error( 'media_upload_failed', 'WordPress could not add the image to the Media Library: ' . $attachment_id->get_error_message() );
+        }
+
+        if ( array_key_exists( 'alt_text', $args ) ) {
+            update_post_meta( $attachment_id, '_wp_attachment_image_alt', sanitize_text_field( $args['alt_text'] ) );
+        }
+
+        $record = self::media_record( get_post( $attachment_id ), true );
+        return array(
+            'success'     => true,
+            'attachment'  => $record,
+            'parent_id'   => $parent_id,
+            'size_bytes'  => $file_size,
+        );
+    }
+
