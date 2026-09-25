@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v1.6.0**
+**v1.7.0**
 
 ## Highlights
 
@@ -19,6 +19,11 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 - ACF values for posts, users, terms, comments and option-page targets
 - Persistent MCP-managed ACF PRO option pages
 - Elementor builder integration using Elementor's document/widget APIs
+- WPBakery shortcode-builder document support
+- Divi legacy shortcode and newer block-aware builder support
+- Muffin Builder / BeBuilder `mfn-page-items` support
+- Custom theme and child-theme scaffolding
+- Installed theme file create/read/update/delete tools with safe paths and SHA-256 conflict checks
 - Read complete Elementor element trees and page settings
 - Add/update/move/duplicate/delete Elementor containers and widgets
 - Replace complete Elementor documents with SHA-256 conflict protection
@@ -66,6 +71,37 @@ Supported operations include:
 - Clear generated Elementor files/cache with confirmation
 
 The connector does not simulate mouse clicks inside the browser editor. It works directly with Elementor's own document model and APIs, so saved changes remain Elementor-native and editable in the Elementor UI.
+
+## Additional page builders
+
+### WPBakery
+
+WPBakery content is managed in its native shortcode/post-content model. The connector can read the complete document, enable WPBakery mode, append/prepend registered shortcode elements, and replace the complete builder document with SHA-256 conflict protection.
+
+### Divi
+
+Divi support handles both legacy `et_pb_*` shortcode content and newer block-aware content. The connector can read complete Divi content, enable Divi Builder, append registered legacy modules, append registered Divi blocks, and replace the complete builder document with conflict protection.
+
+### Muffin Builder / BeBuilder
+
+BeTheme builder data is read from `mfn-page-items`. The connector detects serialized, base64-serialized and JSON-style storage, preserves the detected encoding on writes, and can replace the complete builder document, append sections, update indexed builder items and delete indexed items with confirmation.
+
+## Custom theme development
+
+The connector can now create a minimal custom theme or child theme and safely manage installed-theme source files.
+
+Supported operations include:
+
+- Create custom theme scaffolds
+- Create child themes from installed parent themes
+- Read files from installed themes
+- Create new theme files without overwriting existing files
+- Update existing theme files using SHA-256 read-before-write protection
+- Delete non-critical theme files with SHA-256 protection
+- Validate PHP syntax and JSON before writes
+- Respect WordPress file-editing restrictions and native capabilities
+
+Critical bootstrap files such as `style.css`, `index.php`, and `functions.php` are not deletable through the MCP file-delete tool.
 
 ## Destructive-operation safety
 
