@@ -134,3 +134,211 @@ class WPCMCP_Tools {
                 ),
                 array( 'url' ), false, false, false, true
             ),
+            self::tool(
+                'wordpress.upload_media_file',
+                'Upload ChatGPT File',
+                'Upload a ChatGPT-provided raster image into the WordPress Media Library. Use this for images attached, generated, or selected from the ChatGPT file library. The image must fit within the site upload limit (maximum 10 MB).',
+                array(
+                    'file'        => array(
+                        'type'                 => 'object',
+                        'description'          => 'Image file supplied by ChatGPT.',
+                        'properties'           => array(
+                            'download_url' => array( 'type' => 'string', 'format' => 'uri', 'description' => 'Temporary HTTPS download URL supplied by ChatGPT.' ),
+                            'file_id'      => array( 'type' => 'string', 'description' => 'ChatGPT file identifier.' ),
+                            'mime_type'    => array( 'type' => 'string', 'description' => 'Optional file MIME type supplied by ChatGPT.' ),
+                            'file_name'    => array( 'type' => 'string', 'description' => 'Optional original filename supplied by ChatGPT.' ),
+                        ),
+                        'required'             => array( 'download_url', 'file_id' ),
+                        'additionalProperties' => false,
+                    ),
+                    'filename'    => array( 'type' => 'string', 'description' => 'Optional filename override. WordPress will normalize its extension to the detected image type.' ),
+                    'title'       => array( 'type' => 'string', 'description' => 'Optional Media Library title.' ),
+                    'alt_text'    => array( 'type' => 'string', 'description' => 'Optional accessible alternative text.' ),
+                    'caption'     => array( 'type' => 'string', 'description' => 'Optional image caption.' ),
+                    'description' => array( 'type' => 'string', 'description' => 'Optional image description; safe HTML is allowed.' ),
+                    'post_id'     => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Optional post/page/CPT ID to use as the attachment parent.' ),
+                ),
+                array( 'file' ), false, false, false, true,
+                array( 'openai/fileParams' => array( 'file' ) )
+            ),
+            self::tool(
+                'wordpress.set_featured_image',
+                'Set Featured Image',
+                'Set an existing Media Library image as the featured image for a post, page, or public custom post type.',
+                array(
+                    'post_id'  => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Target post, page, or public CPT ID.' ),
+                    'media_id' => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Existing image attachment ID.' ),
+                ),
+                array( 'post_id', 'media_id' ), false, false, true
+            ),
+        );
+    }
+
+    public static function tool( $name, $title, $description, $properties, $required, $read_only, $destructive, $idempotent, $open_world = false, $meta = array() ) {
+        $tool = array(
+            'name'        => $name,
+            'title'       => $title,
+            'description' => $description,
+            'inputSchema' => array(
+                '$schema'              => 'https://json-schema.org/draft/2020-12/schema',
+                'type'                 => 'object',
+                'properties'           => (object) $properties,
+                'required'             => $required,
+                'additionalProperties' => false,
+            ),
+            'annotations' => array(
+                'title'           => $title,
+                'readOnlyHint'    => (bool) $read_only,
+                'destructiveHint' => (bool) $destructive,
+                'idempotentHint'  => (bool) $idempotent,
+                'openWorldHint'   => (bool) $open_world,
+            ),
+        );
+
+        if ( ! empty( $meta ) && is_array( $meta ) ) {
+            $tool['_meta'] = $meta;
+        }
+
+        return $tool;
+    }
+
+    public static function validate_arguments( array $definition, array $args ) {
+        if ( empty( $definition['inputSchema'] ) || ! is_array( $definition['inputSchema'] ) ) {
+            return true;
+        }
+        return self::validate_schema_value( $definition['inputSchema'], $args, 'arguments' );
+    }
+
+    private static function validate_schema_value( array $schema, $value, $path ) {
+        $types = isset( $schema['type'] ) ? (array) $schema['type'] : array();
+        if ( ! empty( $types ) ) {
+            $valid_type = false;
+            foreach ( $types as $type ) {
+                if ( self::matches_schema_type( $value, $type ) ) {
+                    $valid_type = true;
+                    break;
+                }
+            }
+            if ( ! $valid_type ) return new WP_Error( 'invalid_tool_arguments', $path . ' has an invalid type.' );
+        }
+
+        if ( isset( $schema['enum'] ) && ! in_array( $value, $schema['enum'], true ) ) {
+            return new WP_Error( 'invalid_tool_arguments', $path . ' is not one of the allowed values.' );
+        }
+        if ( array_key_exists( 'const', $schema ) && $value !== $schema['const'] ) {
+            return new WP_Error( 'invalid_tool_arguments', $path . ' must equal the required constant value.' );
+        }
+        if ( is_int( $value ) || is_float( $value ) ) {
+            if ( isset( $schema['minimum'] ) && $value < $schema['minimum'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' is below the minimum.' );
+            if ( isset( $schema['maximum'] ) && $value > $schema['maximum'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' exceeds the maximum.' );
+        }
+        if ( is_string( $value ) ) {
+            if ( isset( $schema['minLength'] ) && strlen( $value ) < (int) $schema['minLength'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' is shorter than allowed.' );
+            if ( isset( $schema['maxLength'] ) && strlen( $value ) > (int) $schema['maxLength'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' is longer than allowed.' );
+            if ( isset( $schema['format'] ) && 'email' === $schema['format'] && ! is_email( $value ) ) return new WP_Error( 'invalid_tool_arguments', $path . ' must be a valid email address.' );
+            if ( isset( $schema['format'] ) && 'uri' === $schema['format'] && ! filter_var( $value, FILTER_VALIDATE_URL ) ) return new WP_Error( 'invalid_tool_arguments', $path . ' must be a valid URI.' );
+        }
+        if ( is_array( $value ) && self::schema_is_array( $schema ) ) {
+            if ( isset( $schema['minItems'] ) && count( $value ) < (int) $schema['minItems'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' contains too few items.' );
+            if ( isset( $schema['maxItems'] ) && count( $value ) > (int) $schema['maxItems'] ) return new WP_Error( 'invalid_tool_arguments', $path . ' contains too many items.' );
+            if ( isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
+                foreach ( $value as $index => $item ) {
+                    $result = self::validate_schema_value( $schema['items'], $item, $path . '[' . $index . ']' );
+                    if ( is_wp_error( $result ) ) return $result;
+                }
+            }
+        }
+        if ( is_array( $value ) && self::schema_is_object( $schema ) ) {
+            $properties = isset( $schema['properties'] ) ? (array) $schema['properties'] : array();
+            foreach ( isset( $schema['required'] ) ? (array) $schema['required'] : array() as $required ) {
+                if ( ! array_key_exists( $required, $value ) ) return new WP_Error( 'invalid_tool_arguments', $path . '.' . $required . ' is required.' );
+            }
+            if ( isset( $schema['additionalProperties'] ) && false === $schema['additionalProperties'] ) {
+                foreach ( array_keys( $value ) as $key ) if ( ! array_key_exists( $key, $properties ) ) return new WP_Error( 'invalid_tool_arguments', $path . '.' . $key . ' is not supported.' );
+            }
+            foreach ( $properties as $key => $property_schema ) {
+                if ( ! array_key_exists( $key, $value ) || ! is_array( $property_schema ) ) continue;
+                $result = self::validate_schema_value( $property_schema, $value[ $key ], $path . '.' . $key );
+                if ( is_wp_error( $result ) ) return $result;
+            }
+        }
+        return true;
+    }
+
+    private static function schema_is_array( array $schema ) {
+        return isset( $schema['type'] ) && in_array( 'array', (array) $schema['type'], true );
+    }
+
+    private static function schema_is_object( array $schema ) {
+        return isset( $schema['type'] ) && in_array( 'object', (array) $schema['type'], true );
+    }
+
+    private static function matches_schema_type( $value, $type ) {
+        switch ( $type ) {
+            case 'null': return null === $value;
+            case 'boolean': return is_bool( $value );
+            case 'integer': return is_int( $value );
+            case 'number': return is_int( $value ) || is_float( $value );
+            case 'string': return is_string( $value );
+            case 'array': return is_array( $value ) && self::is_list_array( $value );
+            case 'object': return is_array( $value ) && ( empty( $value ) || ! self::is_list_array( $value ) );
+            default: return true;
+        }
+    }
+
+    private static function is_list_array( array $value ) {
+        $index = 0;
+        foreach ( $value as $key => $unused ) {
+            if ( $key !== $index ) return false;
+            $index++;
+        }
+        return true;
+    }
+
+    public static function execute( $name, array $args ) {
+        switch ( $name ) {
+            case 'wordpress.site_info':
+            case 'wordpress.get_site_info':
+                return self::site_info();
+            case 'wordpress.get_wordpress_version':
+                return self::wordpress_version();
+            case 'wordpress.list_post_types':
+                return self::list_post_types();
+            case 'wordpress.search_content':
+                return self::search_content( $args );
+            case 'wordpress.get_content':
+                return self::get_content( $args );
+            case 'wordpress.get_acf_fields':
+                return self::get_acf_fields( $args );
+
+            case 'wordpress.list_posts':
+                return self::list_typed_content( 'post', $args );
+            case 'wordpress.get_post':
+                return self::get_typed_content( 'post', $args );
+            case 'wordpress.create_post':
+                return self::create_typed_content( 'post', $args );
+            case 'wordpress.update_post':
+                return self::update_typed_content( 'post', $args );
+            case 'wordpress.delete_post':
+                return self::trash_typed_content( 'post', $args );
+
+            case 'wordpress.list_pages':
+                return self::list_typed_content( 'page', $args );
+            case 'wordpress.get_page':
+                return self::get_typed_content( 'page', $args );
+            case 'wordpress.create_page':
+                return self::create_typed_content( 'page', $args );
+            case 'wordpress.update_page':
+                return self::update_typed_content( 'page', $args );
+            case 'wordpress.delete_page':
+                return self::trash_typed_content( 'page', $args );
+
+            case 'wordpress.list_media':
+                return self::list_media( $args );
+            case 'wordpress.get_media':
+                return self::get_media( $args );
+            case 'wordpress.upload_media':
+                return self::upload_media( $args );
+            case 'wordpress.upload_media_file':
+                return self::upload_media_file( $args );
+            case 'wordpress.set_featured_image':
