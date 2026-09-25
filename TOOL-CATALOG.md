@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 1.2.0 — Tool Catalog
+# WP ChatGPT MCP 1.5.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -126,6 +126,47 @@ The first two tools remain discoverable and report when ACF is unavailable. The 
 - `wordpress.update_acf_fields`
 - `wordpress.get_acf_options` (`fields`, plus optional `option_page` or `post_id`; explicit field names required and bulk option dumps are blocked)
 - `wordpress.update_acf_option` (`field`, `value`, plus optional `option_page` or `post_id`)
+
+## Structural management
+
+- `wordpress.get_post_type_definition`
+- `wordpress.get_taxonomy_definition`
+- `wordpress.get_archive_info`
+- `wordpress.save_post_type_definition`
+- `wordpress.delete_post_type_definition`
+- `wordpress.save_taxonomy_definition`
+- `wordpress.delete_taxonomy_definition`
+- `wordpress.flush_rewrite_rules`
+
+MCP-managed custom post types can control archive enablement, archive/rewrite slugs, REST visibility, hierarchy, supports, capability type and taxonomy connections. MCP-managed taxonomies can control hierarchy, rewrite behavior, REST visibility, admin columns and connected post types.
+
+## ACF PRO structure management
+
+- `wordpress.acf_status`
+- `wordpress.acf_list_field_groups`
+- `wordpress.acf_get_field_group`
+- `wordpress.acf_list_fields`
+- `wordpress.acf_get_field`
+- `wordpress.acf_create_field_group`
+- `wordpress.acf_update_field_group`
+- `wordpress.acf_duplicate_field_group`
+- `wordpress.acf_trash_field_group`
+- `wordpress.acf_delete_field_group`
+- `wordpress.acf_create_field`
+- `wordpress.acf_update_field`
+- `wordpress.acf_duplicate_field`
+- `wordpress.acf_trash_field`
+- `wordpress.acf_delete_field`
+- `wordpress.acf_set_location_rules`
+- `wordpress.acf_set_conditional_logic`
+- `wordpress.acf_get_values`
+- `wordpress.acf_update_values`
+- `wordpress.acf_delete_value`
+- `wordpress.acf_list_option_pages_managed`
+- `wordpress.acf_save_option_page`
+- `wordpress.acf_delete_option_page`
+
+Permanent ACF deletion and destructive structural operations require `confirm=true`.
 
 ## WooCommerce integration
 
