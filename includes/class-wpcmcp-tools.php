@@ -31,6 +31,8 @@ class WPCMCP_Tools {
             'WPCMCP_Extension_Manager_Tools',
             'WPCMCP_Theme_Source_Tools',
             'WPCMCP_WooCommerce_Tools',
+            'WPCMCP_Structure_Tools',
+            'WPCMCP_ACF_Pro_Tools',
         );
     }
 
