@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 1.5.0 — Tool Catalog
+# WP ChatGPT MCP 1.6.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -167,6 +167,29 @@ MCP-managed custom post types can control archive enablement, archive/rewrite sl
 - `wordpress.acf_delete_option_page`
 
 Permanent ACF deletion and destructive structural operations require `confirm=true`.
+
+## Elementor builder
+
+These tools appear only when Elementor is active.
+
+- `wordpress.elementor_status`
+- `wordpress.elementor_get_document`
+- `wordpress.elementor_get_element`
+- `wordpress.elementor_list_widgets`
+- `wordpress.elementor_render_document`
+- `wordpress.elementor_enable_document`
+- `wordpress.elementor_replace_document`
+- `wordpress.elementor_add_container`
+- `wordpress.elementor_add_widget`
+- `wordpress.elementor_add_element`
+- `wordpress.elementor_update_element`
+- `wordpress.elementor_duplicate_element`
+- `wordpress.elementor_move_element`
+- `wordpress.elementor_delete_element`
+- `wordpress.elementor_update_page_settings`
+- `wordpress.elementor_clear_cache`
+
+Elementor data is managed through Elementor's document/widget APIs. Whole-document replacement requires the latest SHA-256 returned by `wordpress.elementor_get_document` plus `confirm=true`. Element deletion and cache clearing also require explicit confirmation.
 
 ## WooCommerce integration
 
