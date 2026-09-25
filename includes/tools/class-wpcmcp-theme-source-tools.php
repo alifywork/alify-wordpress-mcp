@@ -320,4 +320,129 @@ class WPCMCP_Theme_Source_Tools {
                     break;
                 }
             }
-            if ( ! $found ) return new WP_Error( 'theme_backup_fail
+            if ( ! $found ) return new WP_Error( 'theme_backup_failed', 'The protected theme source backup could not be saved; the file was not changed.' );
+        }
+        return $id;
+    }
+
+    private static function list_theme_file_backups() {
+        if ( ! self::can_read_source() ) return new WP_Error( 'forbidden', 'Theme source backup reads require the WordPress edit_theme_options capability.' );
+        $items = array();
+        foreach ( array_reverse( self::backups() ) as $backup ) {
+            $item = $backup;
+            unset( $item['content'] );
+            $items[] = $item;
+        }
+        return array( 'backups' => $items, 'retention_limit' => self::MAX_BACKUPS );
+    }
+
+    private static function validate_new_content( $content, $extension ) {
+        if ( ! is_string( $content ) || strlen( $content ) > self::MAX_WRITE_BYTES ) return new WP_Error( 'theme_content_too_large', 'Replacement theme source must be a string no larger than 512 KB.' );
+        if ( false !== strpos( $content, "\0" ) ) return new WP_Error( 'invalid_theme_content', 'Theme source cannot contain null bytes.' );
+        if ( 'json' === $extension ) {
+            json_decode( $content, true );
+            if ( JSON_ERROR_NONE !== json_last_error() ) return new WP_Error( 'invalid_json', 'Replacement JSON is invalid: ' . json_last_error_msg() );
+        }
+        if ( 'php' === $extension && defined( 'TOKEN_PARSE' ) ) {
+            try {
+                token_get_all( $content, TOKEN_PARSE );
+            } catch ( ParseError $error ) {
+                return new WP_Error( 'php_parse_error', 'Replacement PHP failed syntax validation: ' . $error->getMessage() );
+            }
+        }
+        return true;
+    }
+
+    private static function write_theme_file( array $theme, array $file, $content, $expected_sha256, $reason ) {
+        if ( ! self::file_editing_allowed() ) return new WP_Error( 'theme_file_editing_disabled', 'WordPress theme file editing is disabled by site configuration.' );
+        $validation = self::validate_new_content( $content, $file['extension'] );
+        if ( is_wp_error( $validation ) ) return $validation;
+        $current = file_get_contents( $file['absolute'] );
+        if ( false === $current ) return new WP_Error( 'theme_file_unreadable', 'WordPress could not read the current theme file.' );
+        if ( strlen( $current ) > self::MAX_WRITE_BYTES ) return new WP_Error( 'theme_file_too_large', 'Theme source files larger than 512 KB cannot be changed through MCP.' );
+        $current_sha256 = hash( 'sha256', $current );
+        if ( ! is_string( $expected_sha256 ) || ! hash_equals( $current_sha256, strtolower( $expected_sha256 ) ) ) {
+            return new WP_Error( 'theme_file_conflict', 'The theme file changed after it was read. Read it again and use the latest SHA-256.' );
+        }
+        $new_sha256 = hash( 'sha256', $content );
+        if ( hash_equals( $current_sha256, $new_sha256 ) ) {
+            return array( 'success' => true, 'changed' => false, 'theme' => $theme['target'], 'stylesheet' => $theme['stylesheet'], 'path' => $file['path'], 'sha256' => $current_sha256 );
+        }
+        $backup_id = self::save_backup( $theme, $file, $current, $reason );
+        if ( is_wp_error( $backup_id ) ) return $backup_id;
+        self::load_file_admin();
+        $result = wp_edit_theme_plugin_file(
+            array(
+                'file'       => $file['path'],
+                'theme'      => $theme['stylesheet'],
+                'newcontent' => $content,
+                'nonce'      => wp_create_nonce( 'edit-theme_' . $theme['stylesheet'] . '_' . $file['path'] ),
+            )
+        );
+        if ( is_wp_error( $result ) ) return $result;
+        $written = file_get_contents( $file['absolute'] );
+        if ( false === $written || ! hash_equals( $new_sha256, hash( 'sha256', $written ) ) ) return new WP_Error( 'theme_write_verification_failed', 'The theme file write could not be verified. The protected backup remains available.' );
+        return array(
+            'success'       => true,
+            'changed'       => true,
+            'theme'         => $theme['target'],
+            'stylesheet'    => $theme['stylesheet'],
+            'path'          => $file['path'],
+            'previous_sha256'=> $current_sha256,
+            'sha256'        => $new_sha256,
+            'size_bytes'    => strlen( $written ),
+            'backup_id'     => $backup_id,
+            'php_rollback_checked' => 'php' === $file['extension'],
+        );
+    }
+
+    private static function update_theme_file( array $args ) {
+        if ( ! self::can_write_source() ) return self::write_permission_error();
+        if ( ! isset( $args['confirm'] ) || true !== $args['confirm'] ) return new WP_Error( 'confirmation_required', 'Theme source editing requires confirm=true.' );
+        $theme = self::resolve_theme( isset( $args['theme'] ) ? $args['theme'] : 'active' );
+        if ( is_wp_error( $theme ) ) return $theme;
+        $file = self::resolve_file( $theme, isset( $args['path'] ) ? $args['path'] : '' );
+        if ( is_wp_error( $file ) ) return $file;
+        return self::write_theme_file(
+            $theme,
+            $file,
+            isset( $args['content'] ) ? $args['content'] : '',
+            isset( $args['expected_sha256'] ) ? $args['expected_sha256'] : '',
+            'update'
+        );
+    }
+
+    private static function restore_theme_file_backup( array $args ) {
+        if ( ! self::can_write_source() ) return self::write_permission_error();
+        if ( ! isset( $args['confirm'] ) || true !== $args['confirm'] ) return new WP_Error( 'confirmation_required', 'Theme source backup restoration requires confirm=true.' );
+        $backup_id = isset( $args['backup_id'] ) ? sanitize_text_field( $args['backup_id'] ) : '';
+        $selected = null;
+        foreach ( self::backups() as $backup ) {
+            if ( isset( $backup['id'] ) && hash_equals( (string) $backup['id'], $backup_id ) ) {
+                $selected = $backup;
+                break;
+            }
+        }
+        if ( ! $selected || ! isset( $selected['content'], $selected['stylesheet'], $selected['path'] ) ) return new WP_Error( 'backup_not_found', 'Theme source backup not found.' );
+        if ( get_stylesheet() === $selected['stylesheet'] ) {
+            $target = 'active';
+        } elseif ( get_template() === $selected['stylesheet'] ) {
+            $target = 'parent';
+        } else {
+            return new WP_Error( 'backup_theme_inactive', 'The backup does not belong to the current active theme or its parent.' );
+        }
+        $theme = self::resolve_theme( $target );
+        if ( is_wp_error( $theme ) ) return $theme;
+        $file = self::resolve_file( $theme, $selected['path'] );
+        if ( is_wp_error( $file ) ) return $file;
+        $result = self::write_theme_file(
+            $theme,
+            $file,
+            $selected['content'],
+            isset( $args['expected_sha256'] ) ? $args['expected_sha256'] : '',
+            'restore'
+        );
+        if ( ! is_wp_error( $result ) ) $result['restored_from_backup_id'] = $backup_id;
+        return $result;
+    }
+}
