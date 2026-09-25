@@ -149,6 +149,7 @@ class WPCMCP_Server {
             return $this->jsonrpc_error( isset( $payload['id'] ) ? $payload['id'] : null, -32600, 'Invalid Request', null, 200 );
         }
 
+        // JSON-RPC responses/notifications are acknowledged without a response body.
         if ( ! isset( $payload['method'] ) ) {
             if ( array_key_exists( 'result', $payload ) || array_key_exists( 'error', $payload ) ) {
                 return new WP_REST_Response( null, 202 );
@@ -168,6 +169,7 @@ class WPCMCP_Server {
             return $this->jsonrpc_error( null, -32600, 'Invalid Request', null, 200 );
         }
 
+        // Notifications do not receive JSON-RPC bodies. Legacy initialized/cancelled are tolerated.
         if ( null === $id ) {
             return new WP_REST_Response( null, 202 );
         }
