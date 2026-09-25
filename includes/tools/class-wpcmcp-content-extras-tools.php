@@ -494,4 +494,88 @@ class WPCMCP_Content_Extras_Tools {
             $page = self::acf_option_page_by_slug( $slug, $pages );
             if ( ! $page ) continue;
             if ( ! self::validate_acf_option_page_capability( $page ) ) continue;
-            $targets[ (string) $page['post
+            $targets[ (string) $page['post_id'] ] = array( 'post_id' => $page['post_id'], 'menu_slug' => sanitize_key( $page['menu_slug'] ) );
+        }
+
+        if ( 1 === count( $targets ) ) return reset( $targets );
+        if ( 1 < count( $targets ) ) return new WP_Error( 'ambiguous_acf_option_page', 'This field is assigned to multiple ACF option pages. Supply post_id or option_page explicitly.' );
+        if ( ! empty( self::acf_option_location_slugs( $context['group'] ) ) ) return new WP_Error( 'acf_option_page_not_registered', 'The field group references an ACF option page that is not currently registered.' );
+
+        return array( 'post_id' => 'option', 'menu_slug' => '' );
+    }
+
+    private static function acf_values_equivalent( $expected, $actual ) {
+        if ( null === $expected || null === $actual ) return null === $expected && null === $actual;
+        if ( is_bool( $expected ) ) return $expected === (bool) $actual;
+        if ( is_numeric( $expected ) && is_numeric( $actual ) ) return (string) ( 0 + $expected ) === (string) ( 0 + $actual );
+        if ( is_scalar( $expected ) && is_scalar( $actual ) ) return (string) $expected === (string) $actual;
+        if ( wp_json_encode( $expected ) === wp_json_encode( $actual ) ) return true;
+        return $expected == $actual;
+    }
+
+    private static function update_acf_fields( array $args ) {
+        if ( ! function_exists( 'update_field' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        $post_id = isset( $args['post_id'] ) ? absint( $args['post_id'] ) : 0;
+        if ( ! get_post( $post_id ) || ! current_user_can( 'edit_post', $post_id ) ) return new WP_Error( 'forbidden', 'Content not found or not editable.' );
+        $fields = isset( $args['fields'] ) && is_array( $args['fields'] ) ? $args['fields'] : array();
+        if ( empty( $fields ) ) return new WP_Error( 'invalid_fields', 'At least one ACF field/value is required.' );
+        $updated = array();
+        foreach ( $fields as $field => $value ) {
+            $field = sanitize_text_field( $field );
+            if ( '' === $field ) continue;
+            $updated[ $field ] = false !== update_field( $field, $value, $post_id );
+        }
+        return array( 'success' => ! in_array( false, $updated, true ), 'post_id' => $post_id, 'updated' => $updated );
+    }
+
+    private static function get_acf_options( array $args ) {
+        if ( ! function_exists( 'get_field' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot read ACF option values.' );
+        $requested = isset( $args['fields'] ) && is_array( $args['fields'] ) ? array_slice( $args['fields'], 0, 50 ) : array();
+        $fields = array();
+        $post_ids = array();
+        $field_keys = array();
+        foreach ( $requested as $field ) {
+            $field = sanitize_text_field( $field );
+            if ( '' === $field ) continue;
+            $context = self::acf_field_context( $field );
+            if ( ! $context ) return new WP_Error( 'acf_field_not_found', 'ACF field not found: ' . $field );
+            $target = self::resolve_acf_option_target( $context, $args );
+            if ( is_wp_error( $target ) ) return $target;
+            $selector = ! empty( $context['field']['key'] ) ? $context['field']['key'] : $field;
+            $fields[ $field ] = get_field( $selector, $target['post_id'] );
+            $post_ids[ $field ] = (string) $target['post_id'];
+            $field_keys[ $field ] = isset( $context['field']['key'] ) ? (string) $context['field']['key'] : '';
+        }
+        return array( 'fields' => $fields ? $fields : (object) array(), 'post_ids' => $post_ids ? $post_ids : (object) array(), 'field_keys' => $field_keys ? $field_keys : (object) array() );
+    }
+
+    private static function update_acf_option( array $args ) {
+        if ( ! function_exists( 'update_field' ) || ! function_exists( 'get_field' ) ) return new WP_Error( 'acf_unavailable', 'Advanced Custom Fields is not active.' );
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot update ACF option values.' );
+        $field = isset( $args['field'] ) ? sanitize_text_field( $args['field'] ) : '';
+        if ( '' === $field ) return new WP_Error( 'invalid_field', 'ACF field key or name is required.' );
+        $context = self::acf_field_context( $field );
+        if ( ! $context ) return new WP_Error( 'acf_field_not_found', 'The requested ACF field is not registered. Use a field name or field key returned by the ACF field-group tools.' );
+        $target = self::resolve_acf_option_target( $context, $args );
+        if ( is_wp_error( $target ) ) return $target;
+
+        $selector = ! empty( $context['field']['key'] ) ? $context['field']['key'] : $field;
+        $value = array_key_exists( 'value', $args ) ? $args['value'] : null;
+        $before = get_field( $selector, $target['post_id'], false );
+        $result = update_field( $selector, $value, $target['post_id'] );
+        $after = get_field( $selector, $target['post_id'], false );
+        $success = false !== $result || self::acf_values_equivalent( $value, $after );
+        if ( ! $success ) return new WP_Error( 'acf_update_failed', 'ACF did not persist the requested value to the resolved option-page storage target.' );
+
+        return array(
+            'success'       => true,
+            'changed'       => ! self::acf_values_equivalent( $before, $after ),
+            'field'         => isset( $context['field']['name'] ) ? (string) $context['field']['name'] : $field,
+            'field_key'     => isset( $context['field']['key'] ) ? (string) $context['field']['key'] : '',
+            'post_id'       => (string) $target['post_id'],
+            'option_page'   => $target['menu_slug'],
+            'value'         => get_field( $selector, $target['post_id'] ),
+        );
+    }
+}
