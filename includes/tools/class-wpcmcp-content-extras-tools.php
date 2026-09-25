@@ -106,4 +106,135 @@ class WPCMCP_Content_Extras_Tools {
                 $tools[] = self::t( 'wordpress.update_acf_option', 'Update ACF Option', 'Update one ACF option-page field. Supply option_page or post_id when a field is assigned to multiple option pages. Requires manage_options.', array(
                     'field' => array( 'type' => 'string' ),
                     'value' => array( 'description' => 'New ACF value.' ),
-                    'option_page' => array( 'type' => 'string', 'minLength'
+                    'option_page' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 191, 'description' => 'Optional registered ACF option-page menu_slug, for example alify-services-archive.' ),
+                    'post_id' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 191, 'description' => 'Optional registered ACF option-page storage post_id, for example services_archive. Numeric IDs may be supplied as digit strings.' ),
+                ), array( 'field', 'value' ), false, false, true );
+            }
+        }
+
+        return $tools;
+    }
+
+    private static function t( $name, $title, $description, $properties, $required, $read_only, $destructive, $idempotent ) {
+        return WPCMCP_Tools::tool( $name, $title, $description, $properties, $required, $read_only, $destructive, $idempotent );
+    }
+
+    public static function execute( $name, array $args ) {
+        switch ( $name ) {
+            case 'wordpress.update_media': return self::update_media( $args );
+            case 'wordpress.delete_media': return self::delete_media( $args );
+            case 'wordpress.restore_content': return self::restore_content( $args );
+            case 'wordpress.delete_content_permanently': return self::delete_content_permanently( $args );
+            case 'wordpress.list_taxonomies': return self::list_taxonomies();
+            case 'wordpress.list_terms': return self::list_terms( $args );
+            case 'wordpress.get_term': return self::get_term( $args );
+            case 'wordpress.create_term': return self::create_term( $args );
+            case 'wordpress.update_term': return self::update_term( $args );
+            case 'wordpress.delete_term': return self::delete_term( $args );
+            case 'wordpress.assign_terms': return self::assign_terms( $args );
+            case 'wordpress.list_revisions': return self::list_revisions( $args );
+            case 'wordpress.get_revision': return self::get_revision( $args );
+            case 'wordpress.restore_revision': return self::restore_revision( $args );
+            case 'wordpress.delete_revision': return self::delete_revision( $args );
+            case 'wordpress.list_acf_field_groups': return self::list_acf_field_groups();
+            case 'wordpress.get_acf_field_group': return self::get_acf_field_group( $args );
+            case 'wordpress.list_acf_option_pages': return self::list_acf_option_pages();
+            case 'wordpress.update_acf_fields': return self::update_acf_fields( $args );
+            case 'wordpress.get_acf_options': return self::get_acf_options( $args );
+            case 'wordpress.update_acf_option': return self::update_acf_option( $args );
+            default: return null;
+        }
+    }
+
+    private static function allowed_content( $post ) {
+        if ( ! $post ) return false;
+        $object = get_post_type_object( $post->post_type );
+        return $object && $object->public && 'attachment' !== $post->post_type;
+    }
+
+    private static function confirm( array $args ) {
+        return isset( $args['confirm'] ) && true === $args['confirm'];
+    }
+
+    private static function update_media( array $args ) {
+        $id = isset( $args['media_id'] ) ? absint( $args['media_id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || 'attachment' !== $post->post_type ) return new WP_Error( 'not_found', 'Media attachment not found.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot edit this media attachment.' );
+        $update = array( 'ID' => $id );
+        if ( array_key_exists( 'title', $args ) ) $update['post_title'] = sanitize_text_field( $args['title'] );
+        if ( array_key_exists( 'caption', $args ) ) $update['post_excerpt'] = sanitize_textarea_field( $args['caption'] );
+        if ( array_key_exists( 'description', $args ) ) $update['post_content'] = wp_kses_post( $args['description'] );
+        if ( 1 < count( $update ) ) {
+            $result = wp_update_post( wp_slash( $update ), true );
+            if ( is_wp_error( $result ) ) return $result;
+        }
+        if ( array_key_exists( 'alt_text', $args ) ) update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $args['alt_text'] ) );
+        if ( 1 === count( $update ) && ! array_key_exists( 'alt_text', $args ) ) return new WP_Error( 'no_changes', 'No media fields were supplied.' );
+        return array( 'success' => true, 'media_id' => $id, 'title' => get_the_title( $id ), 'url' => wp_get_attachment_url( $id ), 'alt_text' => get_post_meta( $id, '_wp_attachment_image_alt', true ) );
+    }
+
+    private static function delete_media( array $args ) {
+        $id = isset( $args['media_id'] ) ? absint( $args['media_id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || 'attachment' !== $post->post_type ) return new WP_Error( 'not_found', 'Media attachment not found.' );
+        if ( ! self::confirm( $args ) ) return new WP_Error( 'confirmation_required', 'Permanent media deletion requires confirm=true.' );
+        if ( ! current_user_can( 'delete_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot delete this media attachment.' );
+        $result = wp_delete_attachment( $id, true );
+        if ( ! $result ) return new WP_Error( 'delete_failed', 'WordPress could not delete this attachment.' );
+        return array( 'success' => true, 'media_id' => $id, 'deleted_permanently' => true );
+    }
+
+    private static function restore_content( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! self::allowed_content( $post ) || 'trash' !== $post->post_status ) return new WP_Error( 'not_found', 'Trashed content not found.' );
+        if ( ! current_user_can( 'edit_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot restore this content.' );
+        $result = wp_untrash_post( $id );
+        if ( ! $result ) return new WP_Error( 'restore_failed', 'WordPress could not restore this content.' );
+        return array( 'success' => true, 'id' => $id, 'status' => get_post_status( $id ) );
+    }
+
+    private static function delete_content_permanently( array $args ) {
+        $id = isset( $args['id'] ) ? absint( $args['id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! self::allowed_content( $post ) ) return new WP_Error( 'not_found', 'Content not found.' );
+        if ( ! self::confirm( $args ) ) return new WP_Error( 'confirmation_required', 'Permanent content deletion requires confirm=true.' );
+        if ( ! current_user_can( 'delete_post', $id ) ) return new WP_Error( 'forbidden', 'You cannot permanently delete this content.' );
+        $result = wp_delete_post( $id, true );
+        if ( ! $result ) return new WP_Error( 'delete_failed', 'WordPress could not permanently delete this content.' );
+        return array( 'success' => true, 'id' => $id, 'deleted_permanently' => true );
+    }
+
+    private static function taxonomy( $name ) {
+        $name = sanitize_key( $name );
+        $taxonomy = get_taxonomy( $name );
+        return $taxonomy && $taxonomy->public ? $taxonomy : false;
+    }
+
+    private static function list_taxonomies() {
+        $items = array();
+        foreach ( get_taxonomies( array( 'public' => true ), 'objects' ) as $taxonomy ) {
+            $items[] = array( 'name' => $taxonomy->name, 'label' => $taxonomy->label, 'hierarchical' => (bool) $taxonomy->hierarchical, 'object_types' => array_values( $taxonomy->object_type ) );
+        }
+        return array( 'taxonomies' => $items );
+    }
+
+    private static function term_record( $term ) {
+        return array( 'id' => (int) $term->term_id, 'taxonomy' => $term->taxonomy, 'name' => $term->name, 'slug' => $term->slug, 'description' => $term->description, 'parent' => (int) $term->parent, 'count' => (int) $term->count );
+    }
+
+    private static function list_terms( array $args ) {
+        $taxonomy = self::taxonomy( isset( $args['taxonomy'] ) ? $args['taxonomy'] : '' );
+        if ( ! $taxonomy ) return new WP_Error( 'invalid_taxonomy', 'Public taxonomy not found.' );
+        $per_page = min( 50, max( 1, isset( $args['per_page'] ) ? absint( $args['per_page'] ) : 10 ) );
+        $page = max( 1, isset( $args['page'] ) ? absint( $args['page'] ) : 1 );
+        $query = array( 'taxonomy' => $taxonomy->name, 'hide_empty' => ! empty( $args['hide_empty'] ), 'number' => $per_page, 'offset' => ( $page - 1 ) * $per_page, 'orderby' => 'name', 'order' => 'ASC' );
+        if ( ! empty( $args['search'] ) ) $query['search'] = sanitize_text_field( $args['search'] );
+        $terms = get_terms( $query );
+        if ( is_wp_error( $terms ) ) return $terms;
+        $count_query = $query;
+        unset( $count_query['number'], $count_query['offset'], $count_query['orderby'], $count_query['order'] );
+        $total = wp_count_terms( $taxonomy->name, $count_query );
+        if ( is_wp_error( $total ) ) return $total;
+        return array( 'items' => array_map( array( __CLASS__, 'term_record' ), $terms ), 'page' => $page, 'per_page' => $pe
