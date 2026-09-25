@@ -200,4 +200,96 @@ class WPCMCP_Admin_Tools {
         $data = $existing ? self::existing_item_data( $existing ) : array( 'menu-item-type' => 'custom', 'menu-item-object-id' => 0, 'menu-item-object' => 'custom', 'menu-item-title' => '', 'menu-item-url' => '', 'menu-item-description' => '', 'menu-item-attr-title' => '', 'menu-item-target' => '', 'menu-item-classes' => '', 'menu-item-xfn' => '', 'menu-item-parent-id' => 0, 'menu-item-position' => 0, 'menu-item-status' => 'publish' );
 
         if ( array_key_exists( 'type', $args ) ) $data['menu-item-type'] = sanitize_key( $args['type'] );
-        if ( array_key_exists( 'object_id', $args ) ) $data['
+        if ( array_key_exists( 'object_id', $args ) ) $data['menu-item-object-id'] = absint( $args['object_id'] );
+        if ( array_key_exists( 'object', $args ) ) $data['menu-item-object'] = sanitize_key( $args['object'] );
+        if ( array_key_exists( 'title', $args ) ) $data['menu-item-title'] = sanitize_text_field( $args['title'] );
+        if ( array_key_exists( 'url', $args ) ) $data['menu-item-url'] = esc_url_raw( $args['url'], array( 'http', 'https' ) );
+        if ( array_key_exists( 'description', $args ) ) $data['menu-item-description'] = sanitize_textarea_field( $args['description'] );
+        if ( array_key_exists( 'attr_title', $args ) ) $data['menu-item-attr-title'] = sanitize_text_field( $args['attr_title'] );
+        if ( array_key_exists( 'target', $args ) ) $data['menu-item-target'] = '_blank' === $args['target'] ? '_blank' : '';
+        if ( array_key_exists( 'classes', $args ) ) $data['menu-item-classes'] = implode( ' ', array_map( 'sanitize_html_class', (array) $args['classes'] ) );
+        if ( array_key_exists( 'xfn', $args ) ) $data['menu-item-xfn'] = sanitize_text_field( $args['xfn'] );
+        if ( array_key_exists( 'parent_id', $args ) ) $data['menu-item-parent-id'] = absint( $args['parent_id'] );
+        if ( array_key_exists( 'position', $args ) ) $data['menu-item-position'] = absint( $args['position'] );
+        if ( array_key_exists( 'status', $args ) ) $data['menu-item-status'] = 'draft' === $args['status'] ? 'draft' : 'publish';
+
+        if ( 'custom' === $data['menu-item-type'] ) {
+            if ( '' === $data['menu-item-title'] || '' === $data['menu-item-url'] ) return new WP_Error( 'invalid_menu_item', 'Custom links require a title and valid HTTP(S) URL.' );
+            $data['menu-item-object'] = 'custom';
+        } elseif ( 'post_type' === $data['menu-item-type'] ) {
+            $object = get_post( $data['menu-item-object-id'] );
+            $type = $object ? get_post_type_object( $object->post_type ) : false;
+            if ( ! $object || ! $type || ! $type->public ) return new WP_Error( 'invalid_menu_item', 'Public content object not found.' );
+            $data['menu-item-object'] = $object->post_type;
+        } elseif ( 'taxonomy' === $data['menu-item-type'] ) {
+            $taxonomy = get_taxonomy( $data['menu-item-object'] );
+            $term = $taxonomy ? get_term( $data['menu-item-object-id'], $taxonomy->name ) : false;
+            if ( ! $taxonomy || ! $taxonomy->public || ! $term || is_wp_error( $term ) ) return new WP_Error( 'invalid_menu_item', 'Public taxonomy term not found.' );
+        } elseif ( 'post_type_archive' === $data['menu-item-type'] ) {
+            $type = get_post_type_object( $data['menu-item-object'] );
+            if ( ! $type || ! $type->public || ! $type->has_archive ) return new WP_Error( 'invalid_menu_item', 'Public post-type archive not found.' );
+        } else {
+            return new WP_Error( 'invalid_menu_item_type', 'Unsupported menu-item type.' );
+        }
+
+        $result = wp_update_nav_menu_item( $menu_id, $item_id, wp_slash( $data ) );
+        if ( is_wp_error( $result ) ) return $result;
+        return self::item_record( wp_setup_nav_menu_item( get_post( $result ) ) );
+    }
+
+    private static function delete_menu_item( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot delete navigation menu items.' );
+        $id = isset( $args['menu_item_id'] ) ? absint( $args['menu_item_id'] ) : 0;
+        $post = get_post( $id );
+        if ( ! $post || 'nav_menu_item' !== $post->post_type ) return new WP_Error( 'not_found', 'Navigation menu item not found.' );
+        if ( ! isset( $args['confirm'] ) || true !== $args['confirm'] ) return new WP_Error( 'confirmation_required', 'Menu-item deletion requires confirm=true.' );
+        if ( ! wp_delete_post( $id, true ) ) return new WP_Error( 'delete_failed', 'WordPress could not delete the menu item.' );
+        return array( 'success' => true, 'menu_item_id' => $id, 'deleted_permanently' => true );
+    }
+
+    private static function assign_menu_location( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot assign navigation menu locations.' );
+        $location = isset( $args['location'] ) ? sanitize_key( $args['location'] ) : '';
+        $registered = get_registered_nav_menus();
+        if ( ! isset( $registered[ $location ] ) ) return new WP_Error( 'invalid_location', 'Theme menu location not found.' );
+        $menu_id = isset( $args['menu_id'] ) ? absint( $args['menu_id'] ) : 0;
+        $menu = $menu_id ? wp_get_nav_menu_object( $menu_id ) : false;
+        if ( $menu_id && ( ! $menu || is_wp_error( $menu ) ) ) return new WP_Error( 'not_found', 'Navigation menu not found.' );
+        $locations = get_nav_menu_locations();
+        $locations[ $location ] = $menu_id;
+        set_theme_mod( 'nav_menu_locations', $locations );
+        return array( 'success' => true, 'location' => $location, 'menu_id' => $menu_id );
+    }
+
+    private static function get_site_settings() {
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot read site settings.' );
+        return array(
+            'site_title'             => get_option( 'blogname' ),
+            'tagline'                => get_option( 'blogdescription' ),
+            'timezone'               => wp_timezone_string(),
+            'date_format'            => get_option( 'date_format' ),
+            'time_format'            => get_option( 'time_format' ),
+            'week_starts_on'         => (int) get_option( 'start_of_week' ),
+            'posts_per_page'         => (int) get_option( 'posts_per_page' ),
+            'homepage_display'       => get_option( 'show_on_front' ),
+            'homepage_id'            => (int) get_option( 'page_on_front' ),
+            'posts_page_id'           => (int) get_option( 'page_for_posts' ),
+            'default_comment_status' => get_option( 'default_comment_status' ),
+            'permalink_structure'    => get_option( 'permalink_structure' ),
+        );
+    }
+
+    private static function update_site_settings( array $args ) {
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'You cannot update site settings.' );
+        $map = array(
+            'site_title'      => array( 'blogname', 'sanitize_text_field' ),
+            'tagline'         => array( 'blogdescription', 'sanitize_text_field' ),
+            'timezone'        => array( 'timezone_string', 'sanitize_text_field' ),
+            'date_format'     => array( 'date_format', 'sanitize_text_field' ),
+            'time_format'     => array( 'time_format', 'sanitize_text_field' ),
+            'week_starts_on'  => array( 'start_of_week', 'absint' ),
+            'posts_per_page'  => array( 'posts_per_page', 'absint' ),
+        );
+        if ( array_key_exists( 'timezone', $args ) ) {
+            $timezone = sanitize_text_field( $args['timezone'] );
+            $valid_timezone = in_array( $time
