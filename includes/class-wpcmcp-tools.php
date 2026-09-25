@@ -1044,3 +1044,22 @@ class WPCMCP_Tools {
 
     private static function comment_record( $comment, $full = false ) {
         $record = array(
+            'id'        => (int) $comment->comment_ID,
+            'post_id'   => (int) $comment->comment_post_ID,
+            'author'    => $comment->comment_author,
+            'status'    => wp_get_comment_status( $comment ),
+            'date_gmt'  => $comment->comment_date_gmt,
+            'content'   => $full ? $comment->comment_content : wp_trim_words( wp_strip_all_tags( $comment->comment_content ), 40 ),
+        );
+        if ( $full ) $record['url'] = get_comment_link( $comment );
+        return $record;
+    }
+
+    private static function per_page( array $args ) {
+        return min( 50, max( 1, isset( $args['per_page'] ) ? absint( $args['per_page'] ) : 10 ) );
+    }
+
+    private static function page( array $args ) {
+        return max( 1, isset( $args['page'] ) ? absint( $args['page'] ) : 1 );
+    }
+}
