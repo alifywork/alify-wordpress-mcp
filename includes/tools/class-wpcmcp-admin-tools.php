@@ -88,4 +88,116 @@ class WPCMCP_Admin_Tools {
             case 'wordpress.update_menu_item': return self::save_menu_item( $args, false );
             case 'wordpress.delete_menu_item': return self::delete_menu_item( $args );
             case 'wordpress.assign_menu_location': return self::assign_menu_location( $args );
-            case 'wordpress.get_site_settings'
+            case 'wordpress.get_site_settings': return self::get_site_settings();
+            case 'wordpress.update_site_settings': return self::update_site_settings( $args );
+            default: return null;
+        }
+    }
+
+    private static function can_manage() {
+        return current_user_can( 'edit_theme_options' );
+    }
+
+    private static function menu_record( $menu ) {
+        return array( 'id' => (int) $menu->term_id, 'name' => $menu->name, 'slug' => $menu->slug, 'count' => (int) $menu->count );
+    }
+
+    private static function item_record( $item ) {
+        return array(
+            'id'          => (int) $item->ID,
+            'title'       => $item->title,
+            'type'        => $item->type,
+            'object'      => $item->object,
+            'object_id'   => (int) $item->object_id,
+            'url'         => $item->url,
+            'description' => $item->description,
+            'attr_title'  => $item->attr_title,
+            'target'      => $item->target,
+            'classes'     => array_values( array_filter( (array) $item->classes ) ),
+            'xfn'         => $item->xfn,
+            'parent_id'   => (int) $item->menu_item_parent,
+            'position'    => (int) $item->menu_order,
+            'status'      => $item->post_status,
+        );
+    }
+
+    private static function list_menus() {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot inspect navigation menus.' );
+        $menus = array_map( array( __CLASS__, 'menu_record' ), wp_get_nav_menus() );
+        $registered = get_registered_nav_menus();
+        $assigned = get_nav_menu_locations();
+        $locations = array();
+        foreach ( $registered as $slug => $description ) $locations[] = array( 'slug' => $slug, 'description' => $description, 'menu_id' => isset( $assigned[ $slug ] ) ? (int) $assigned[ $slug ] : 0 );
+        return array( 'menus' => $menus, 'locations' => $locations );
+    }
+
+    private static function get_menu( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot inspect navigation menus.' );
+        $menu = wp_get_nav_menu_object( isset( $args['menu_id'] ) ? absint( $args['menu_id'] ) : 0 );
+        if ( ! $menu || is_wp_error( $menu ) ) return new WP_Error( 'not_found', 'Navigation menu not found.' );
+        $items = wp_get_nav_menu_items( $menu->term_id, array( 'post_status' => 'publish,draft' ) );
+        return array( 'menu' => self::menu_record( $menu ), 'items' => $items ? array_map( array( __CLASS__, 'item_record' ), $items ) : array() );
+    }
+
+    private static function create_menu( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot create navigation menus.' );
+        $name = isset( $args['name'] ) ? sanitize_text_field( $args['name'] ) : '';
+        if ( '' === $name ) return new WP_Error( 'invalid_name', 'Menu name is required.' );
+        $id = wp_create_nav_menu( $name );
+        if ( is_wp_error( $id ) ) return $id;
+        return self::menu_record( wp_get_nav_menu_object( $id ) );
+    }
+
+    private static function update_menu( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot update navigation menus.' );
+        $id = isset( $args['menu_id'] ) ? absint( $args['menu_id'] ) : 0;
+        $menu = wp_get_nav_menu_object( $id );
+        if ( ! $menu || is_wp_error( $menu ) ) return new WP_Error( 'not_found', 'Navigation menu not found.' );
+        $name = isset( $args['name'] ) ? sanitize_text_field( $args['name'] ) : '';
+        if ( '' === $name ) return new WP_Error( 'invalid_name', 'Menu name is required.' );
+        $result = wp_update_nav_menu_object( $id, array( 'menu-name' => $name ) );
+        if ( is_wp_error( $result ) ) return $result;
+        return self::menu_record( wp_get_nav_menu_object( $id ) );
+    }
+
+    private static function delete_menu( array $args ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot delete navigation menus.' );
+        $id = isset( $args['menu_id'] ) ? absint( $args['menu_id'] ) : 0;
+        if ( ! isset( $args['confirm'] ) || true !== $args['confirm'] ) return new WP_Error( 'confirmation_required', 'Menu deletion requires confirm=true.' );
+        if ( ! wp_get_nav_menu_object( $id ) ) return new WP_Error( 'not_found', 'Navigation menu not found.' );
+        $result = wp_delete_nav_menu( $id );
+        if ( is_wp_error( $result ) || ! $result ) return is_wp_error( $result ) ? $result : new WP_Error( 'delete_failed', 'WordPress could not delete the menu.' );
+        return array( 'success' => true, 'menu_id' => $id, 'deleted_permanently' => true );
+    }
+
+    private static function existing_item_data( $item ) {
+        return array(
+            'menu-item-type'        => $item->type,
+            'menu-item-object-id'   => (int) $item->object_id,
+            'menu-item-object'      => $item->object,
+            'menu-item-title'       => $item->title,
+            'menu-item-url'         => $item->url,
+            'menu-item-description' => $item->description,
+            'menu-item-attr-title'  => $item->attr_title,
+            'menu-item-target'      => $item->target,
+            'menu-item-classes'     => implode( ' ', (array) $item->classes ),
+            'menu-item-xfn'         => $item->xfn,
+            'menu-item-parent-id'   => (int) $item->menu_item_parent,
+            'menu-item-position'    => (int) $item->menu_order,
+            'menu-item-status'      => $item->post_status,
+        );
+    }
+
+    private static function save_menu_item( array $args, $creating ) {
+        if ( ! self::can_manage() ) return new WP_Error( 'forbidden', 'You cannot modify navigation menu items.' );
+        $menu_id = isset( $args['menu_id'] ) ? absint( $args['menu_id'] ) : 0;
+        $menu = wp_get_nav_menu_object( $menu_id );
+        if ( ! $menu || is_wp_error( $menu ) ) return new WP_Error( 'not_found', 'Navigation menu not found.' );
+        $item_id = $creating ? 0 : ( isset( $args['menu_item_id'] ) ? absint( $args['menu_item_id'] ) : 0 );
+        $existing_post = $item_id ? get_post( $item_id ) : false;
+        $existing = $existing_post ? wp_setup_nav_menu_item( $existing_post ) : false;
+        if ( ! $creating && ( ! $existing || 'nav_menu_item' !== $existing->post_type ) ) return new WP_Error( 'not_found', 'Navigation menu item not found.' );
+        $data = $existing ? self::existing_item_data( $existing ) : array( 'menu-item-type' => 'custom', 'menu-item-object-id' => 0, 'menu-item-object' => 'custom', 'menu-item-title' => '', 'menu-item-url' => '', 'menu-item-description' => '', 'menu-item-attr-title' => '', 'menu-item-target' => '', 'menu-item-classes' => '', 'menu-item-xfn' => '', 'menu-item-parent-id' => 0, 'menu-item-position' => 0, 'menu-item-status' => 'publish' );
+
+        if ( array_key_exists( 'type', $args ) ) $data['menu-item-type'] = sanitize_key( $args['type'] );
+        if ( array_key_exists( 'object_id', $args ) ) $data['
