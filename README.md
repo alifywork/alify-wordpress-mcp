@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v1.5.0**
+**v1.6.0**
 
 ## Highlights
 
@@ -18,6 +18,11 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 - ACF location rules, conditional logic, nested fields, repeaters, groups and flexible content
 - ACF values for posts, users, terms, comments and option-page targets
 - Persistent MCP-managed ACF PRO option pages
+- Elementor builder integration using Elementor's document/widget APIs
+- Read complete Elementor element trees and page settings
+- Add/update/move/duplicate/delete Elementor containers and widgets
+- Replace complete Elementor documents with SHA-256 conflict protection
+- Render Elementor document HTML for inspection
 - Optional WooCommerce product/order/customer tools
 - Guarded plugin, theme and theme-source maintenance
 - Automatic database migrations and maintenance
@@ -40,6 +45,27 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 4. Open **ChatGPT MCP → Connection**.
 5. Copy the MCP endpoint.
 6. Add the endpoint to an MCP-compatible client and authorize with WordPress.
+
+## Elementor builder support
+
+When Elementor is active, the MCP connector exposes Elementor-aware tools instead of treating an Elementor page as ordinary post content only.
+
+Supported operations include:
+
+- Inspect Elementor document metadata, page settings and the full recursive element tree
+- List registered Elementor widgets available on the site
+- Enable Elementor for a post/page/CPT
+- Add containers and widgets
+- Add raw validated Elementor elements for advanced/nested structures
+- Update widget/container settings
+- Duplicate and move elements
+- Delete elements with explicit confirmation
+- Replace a complete Elementor document with read-before-write SHA-256 conflict protection
+- Update Elementor page/document settings
+- Render the current Elementor page HTML for inspection
+- Clear generated Elementor files/cache with confirmation
+
+The connector does not simulate mouse clicks inside the browser editor. It works directly with Elementor's own document model and APIs, so saved changes remain Elementor-native and editable in the Elementor UI.
 
 ## Destructive-operation safety
 
