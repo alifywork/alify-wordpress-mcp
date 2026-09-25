@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v1.7.0**
+**v1.8.0**
 
 ## Highlights
 
@@ -24,6 +24,11 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 - Muffin Builder / BeBuilder `mfn-page-items` support
 - Custom theme and child-theme scaffolding
 - Installed theme file create/read/update/delete tools with safe paths and SHA-256 conflict checks
+- Universal Plugin Operator for unfamiliar plugins
+- Plugin-owned REST-route and shortcode discovery
+- Safe installed-plugin source inspection for API/schema discovery
+- Generic in-process plugin REST execution with native permission callbacks
+- Dedicated Contact Form 7 create/read/update/delete adapter
 - Read complete Elementor element trees and page settings
 - Add/update/move/duplicate/delete Elementor containers and widgets
 - Replace complete Elementor documents with SHA-256 conflict protection
@@ -102,6 +107,33 @@ Supported operations include:
 - Respect WordPress file-editing restrictions and native capabilities
 
 Critical bootstrap files such as `style.css`, `index.php`, and `functions.php` are not deletable through the MCP file-delete tool.
+
+## Universal Plugin Operator
+
+The long-term goal of the plugin is natural-language WordPress operation:
+
+**install plugin → activate plugin → discover its capabilities → operate it**
+
+For unfamiliar plugins, GPT can now:
+
+- inspect installed plugin metadata and activation state
+- discover REST routes whose callbacks belong to that plugin
+- discover shortcodes registered by that plugin
+- list/read safe plugin source files to understand its public/internal API surface
+- invoke registered non-core plugin REST routes in-process as the authenticated WordPress user
+- rely on the target plugin's own REST permission callbacks
+
+The generic REST operator intentionally blocks WordPress core and this MCP plugin's own routes; those operations should use dedicated MCP tools instead. Any generic mutating REST call requires `confirm=true`.
+
+Plugins that expose no usable REST API/CPT/shortcode/public PHP API may still need a dedicated adapter. The architecture is designed so adapters can be added without changing the natural-language workflow.
+
+## Contact Form 7 adapter
+
+When Contact Form 7 is active, GPT can list/read forms and create/update/delete forms through CF7's native APIs. This supports requests such as:
+
+> Install Contact Form 7, activate it, create a form called “Project Enquiry”, configure its fields and mail settings, then give me the shortcode.
+
+CF7's current save flow exposes `wpcf7_save_contact_form()`, which the adapter uses rather than writing CF7 storage directly.
 
 ## Destructive-operation safety
 
