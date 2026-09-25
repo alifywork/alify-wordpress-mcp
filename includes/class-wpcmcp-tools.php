@@ -34,6 +34,10 @@ class WPCMCP_Tools {
             'WPCMCP_Structure_Tools',
             'WPCMCP_ACF_Pro_Tools',
             'WPCMCP_Elementor_Tools',
+            'WPCMCP_WPBakery_Tools',
+            'WPCMCP_Divi_Tools',
+            'WPCMCP_Muffin_Tools',
+            'WPCMCP_Theme_Developer_Tools',
         );
     }
 
