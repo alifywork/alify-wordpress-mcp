@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v1.9.0**
+**v2.0.0**
 
 ## Highlights
 
@@ -32,6 +32,10 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 - Adapter SDK registry with automatic adapter detection
 - Natural-language operation planning for installed plugins
 - Extensible adapter registration through the `wpcmcp_adapter_registry` filter
+- Registered plugin settings discovery and safe settings updates
+- Authenticated Admin-AJAX action discovery and execution
+- Plugin admin-page discovery
+- Universal operation diagnostics and interface prioritization
 - Read complete Elementor element trees and page settings
 - Add/update/move/duplicate/delete Elementor containers and widgets
 - Replace complete Elementor documents with SHA-256 conflict protection
@@ -153,6 +157,33 @@ Typical flow:
 Built-in registry entries currently cover Contact Form 7, Elementor, WPBakery, Divi, Muffin/BeBuilder, WooCommerce and ACF/ACF PRO.
 
 Developers can extend the registry with the `wpcmcp_adapter_registry` filter without modifying the core plugin.
+
+## Universal Operator Core v2
+
+Unknown-plugin operation no longer depends on REST alone.
+
+The operator can now inspect and use these interfaces in priority order:
+
+1. dedicated MCP adapter
+2. plugin-owned REST API
+3. WordPress registered settings
+4. authenticated `wp_ajax_*` actions
+5. registered CPTs/taxonomies/shortcodes/public APIs
+6. safe source inspection to understand the plugin and design a dedicated adapter
+
+New v2 tools include:
+
+- `wordpress.plugin_operator_list_settings`
+- `wordpress.plugin_operator_get_setting`
+- `wordpress.plugin_operator_update_setting`
+- `wordpress.plugin_operator_list_ajax_actions`
+- `wordpress.plugin_operator_call_ajax`
+- `wordpress.plugin_operator_list_admin_pages`
+- `wordpress.plugin_operator_diagnose`
+
+Generic settings access is deliberately restricted to registered settings attributable to the target plugin. Credential/secret-looking options are blocked from the generic settings operator.
+
+Admin-AJAX execution is limited to authenticated `wp_ajax_*` callbacks attributed to the selected plugin. Plugin nonce and capability checks are not bypassed.
 
 ## Destructive-operation safety
 
