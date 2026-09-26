@@ -213,6 +213,17 @@ class WPCMCP_Tools {
             ),
         );
 
+        $required_scopes = $read_only
+            ? array( 'wordpress.read' )
+            : array( 'wordpress.read', 'wordpress.write' );
+
+        $tool['securitySchemes'] = array(
+            array(
+                'type' => 'oauth2',
+                'scopes' => $required_scopes,
+            ),
+        );
+
         if ( ! empty( $meta ) && is_array( $meta ) ) {
             $tool['_meta'] = $meta;
         }
