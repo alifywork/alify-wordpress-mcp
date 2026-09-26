@@ -113,14 +113,17 @@ class WPCMCP_Server {
     }
 
     public function get( WP_REST_Request $request ) {
-        $auth = $this->guard_request( $request );
-        if ( $auth instanceof WP_REST_Response ) {
-            return $auth;
+        $origin = $this->validate_origin( $request );
+        if ( is_wp_error( $origin ) ) {
+            return new WP_REST_Response( array( 'error' => 'invalid_origin', 'error_description' => $origin->get_error_message() ), 403 );
         }
         return new WP_REST_Response(
             array(
                 'error'   => 'stream_not_supported',
                 'message' => 'This WordPress MCP server is stateless and does not expose a GET event stream. Use POST requests.',
+                'oauth'   => array(
+                    'protected_resource_metadata' => WPCMCP_OAuth::protected_metadata_url(),
+                ),
             ),
             405
         );
@@ -135,9 +138,9 @@ class WPCMCP_Server {
     }
 
     public function post( WP_REST_Request $request ) {
-        $auth = $this->guard_request( $request );
-        if ( $auth instanceof WP_REST_Response ) {
-            return $auth;
+        $origin = $this->validate_origin( $request );
+        if ( is_wp_error( $origin ) ) {
+            return new WP_REST_Response( array( 'error' => 'invalid_origin', 'error_description' => $origin->get_error_message() ), 403 );
         }
 
         $payload = $request->get_json_params();
@@ -167,6 +170,18 @@ class WPCMCP_Server {
 
         if ( null !== $id && ! is_int( $id ) && ! is_string( $id ) ) {
             return $this->jsonrpc_error( null, -32600, 'Invalid Request', null, 200 );
+        }
+
+        // Connection discovery must be possible before OAuth. ChatGPT can add the
+        // server, inspect tool auth policies, then launch OAuth when a protected
+        // tool is actually invoked.
+        $auth = null;
+        $auth_header = trim( (string) $request->get_header( 'authorization' ) );
+        if ( '' !== $auth_header ) {
+            $auth = $this->authenticate( $request );
+            if ( is_wp_error( $auth ) ) {
+                $auth = null;
+            }
         }
 
         // Notifications do not receive JSON-RPC bodies. Legacy initialized/cancelled are tolerated.
@@ -202,9 +217,20 @@ class WPCMCP_Server {
                 return $this->jsonrpc_result( $id, (object) array() );
 
             case 'tools/list':
+                if ( ! is_array( $auth ) ) {
+                    $auth = array(
+                        'user_id' => 0,
+                        'client_id' => '',
+                        'scopes' => array( 'wordpress.read', 'wordpress.write' ),
+                        'token_id' => 0,
+                    );
+                }
                 return $this->list_tools( $id, $params, $auth, $modern );
 
             case 'tools/call':
+                if ( ! is_array( $auth ) ) {
+                    return $this->oauth_required_tool_result( $id, $modern );
+                }
                 return $this->call_tool( $id, $params, $auth, $modern );
 
             default:
@@ -401,6 +427,25 @@ class WPCMCP_Server {
             ),
             $modern
         );
+    }
+
+    private function oauth_required_tool_result( $id, $modern ) {
+        $challenge = 'Bearer resource_metadata="' . WPCMCP_OAuth::protected_metadata_url() . '", error="invalid_token", error_description="Connect WordPress to continue"';
+
+        $result = array(
+            'content' => array(
+                array(
+                    'type' => 'text',
+                    'text' => 'Authentication required. Connect this WordPress site before using protected tools.',
+                ),
+            ),
+            '_meta' => array(
+                'mcp/www_authenticate' => array( $challenge ),
+            ),
+            'isError' => true,
+        );
+
+        return $this->jsonrpc_result( $id, $result, $modern );
     }
 
     private function server_info() {
