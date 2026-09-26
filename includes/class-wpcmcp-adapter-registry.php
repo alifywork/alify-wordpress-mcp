@@ -270,7 +270,7 @@ class WPCMCP_Adapter_Registry {
             );
             $steps[] = array(
                 'action' => 'prefer_native_interface',
-                'priority' => array( 'dedicated MCP adapter', 'plugin REST route', 'registered CPT/taxonomy', 'shortcode/public API', 'read-only source inspection' ),
+                'priority' => array( 'dedicated MCP adapter', 'plugin REST route', 'registered settings', 'authenticated Admin-AJAX', 'registered CPT/taxonomy', 'shortcode/public API', 'read-only source inspection' ),
             );
         }
 
