@@ -202,7 +202,7 @@ class WPCMCP_Server {
                 return $this->jsonrpc_result( $id, (object) array() );
 
             case 'tools/list':
-                return $this->list_tools( $id, $auth, $modern );
+                return $this->list_tools( $id, $params, $auth, $modern );
 
             case 'tools/call':
                 return $this->call_tool( $id, $params, $auth, $modern );
@@ -305,7 +305,7 @@ class WPCMCP_Server {
         );
     }
 
-    private function list_tools( $id, array $auth, $modern ) {
+    private function list_tools( $id, array $params, array $auth, $modern ) {
         $tools = WPCMCP_Tools::definitions( $auth['scopes'] );
         usort(
             $tools,
@@ -314,11 +314,41 @@ class WPCMCP_Server {
             }
         );
 
-        $result = array( 'tools' => $tools );
+        // MCP list operations support opaque cursor pagination. Keep each page
+        // bounded so large WordPress installations do not produce an oversized
+        // tools/list response during connection setup.
+        $page_size = (int) apply_filters( 'wpcmcp_tools_page_size', 50, $auth, $modern );
+        $page_size = max( 10, min( 100, $page_size ) );
+
+        $cursor = isset( $params['cursor'] ) ? (string) $params['cursor'] : '';
+        $offset = 0;
+        if ( '' !== $cursor ) {
+            $decoded = base64_decode( strtr( $cursor, '-_', '+/' ), true );
+            if ( false === $decoded || ! preg_match( '/^wpcmcp-tools:(\d+)$/', $decoded, $m ) ) {
+                return $this->jsonrpc_error( $id, -32602, 'Invalid cursor', null, 200, $modern );
+            }
+            $offset = (int) $m[1];
+            if ( $offset < 0 || $offset > count( $tools ) ) {
+                return $this->jsonrpc_error( $id, -32602, 'Invalid cursor', null, 200, $modern );
+            }
+        }
+
+        $page = array_slice( $tools, $offset, $page_size );
+        $next_offset = $offset + count( $page );
+
+        $result = array( 'tools' => array_values( $page ) );
+        if ( $next_offset < count( $tools ) ) {
+            $result['nextCursor'] = rtrim(
+                strtr( base64_encode( 'wpcmcp-tools:' . $next_offset ), '+/', '-_' ),
+                '='
+            );
+        }
         if ( $modern ) {
+            $result['resultType'] = 'complete';
             $result['ttlMs'] = 60000;
             $result['cacheScope'] = 'private';
         }
+
         return $this->jsonrpc_result( $id, $result, $modern );
     }
 
