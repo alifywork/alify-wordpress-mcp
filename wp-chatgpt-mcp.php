@@ -3,7 +3,7 @@
  * Plugin Name: WP ChatGPT MCP
  * Plugin URI: https://alify.site/
  * Description: Connect ChatGPT directly to WordPress through a remote Model Context Protocol (MCP) server with OAuth 2.1-style authorization. No OpenAI API key required.
- * Version: 2.5.0
+ * Version: 2.5.1
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: ALIFY
@@ -16,8 +16,8 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'WPCMCP_VERSION', '2.5.0' );
-define( 'WPCMCP_DB_VERSION', '2.5.0' );
+define( 'WPCMCP_VERSION', '2.5.1' );
+define( 'WPCMCP_DB_VERSION', '2.5.1' );
 define( 'WPCMCP_FILE', __FILE__ );
 define( 'WPCMCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPCMCP_URL', plugin_dir_url( __FILE__ ) );
