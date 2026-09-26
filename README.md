@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v1.8.0**
+**v1.9.0**
 
 ## Highlights
 
@@ -29,6 +29,9 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 - Safe installed-plugin source inspection for API/schema discovery
 - Generic in-process plugin REST execution with native permission callbacks
 - Dedicated Contact Form 7 create/read/update/delete adapter
+- Adapter SDK registry with automatic adapter detection
+- Natural-language operation planning for installed plugins
+- Extensible adapter registration through the `wpcmcp_adapter_registry` filter
 - Read complete Elementor element trees and page settings
 - Add/update/move/duplicate/delete Elementor containers and widgets
 - Replace complete Elementor documents with SHA-256 conflict protection
@@ -134,6 +137,22 @@ When Contact Form 7 is active, GPT can list/read forms and create/update/delete 
 > Install Contact Form 7, activate it, create a form called “Project Enquiry”, configure its fields and mail settings, then give me the shortcode.
 
 CF7's current save flow exposes `wpcf7_save_contact_form()`, which the adapter uses rather than writing CF7 storage directly.
+
+## Adapter SDK & Auto Registry
+
+The connector now includes an adapter registry so GPT can decide how to operate a plugin instead of hard-coding that decision into the prompt.
+
+Typical flow:
+
+1. Install the requested plugin with `wordpress.install_plugin`.
+2. Activate it with `wordpress.activate_plugin`.
+3. Detect the best adapter with `wordpress.adapter_registry_detect`.
+4. Use `wordpress.adapter_registry_plan` to map the user's intent to the dedicated adapter when available.
+5. If no dedicated adapter exists, fall back to `wordpress.plugin_operator_discover` and inspect plugin REST routes, shortcodes, registered content models and safe source files.
+
+Built-in registry entries currently cover Contact Form 7, Elementor, WPBakery, Divi, Muffin/BeBuilder, WooCommerce and ACF/ACF PRO.
+
+Developers can extend the registry with the `wpcmcp_adapter_registry` filter without modifying the core plugin.
 
 ## Destructive-operation safety
 
