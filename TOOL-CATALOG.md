@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 2.3.0 — Tool Catalog
+# WP ChatGPT MCP 2.4.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -237,6 +237,12 @@ Theme developer writes require WordPress theme-editing capabilities and file mod
 - `wordpress.adapter_manifest_delete`
 
 Learned manifests cache plugin capability discovery and feed back into the adapter registry.
+
+## Operator profiles
+
+Pre-recognized Universal Operator profiles exist for WPForms, Fluent Forms, Gravity Forms, Forminator, Ninja Forms, Rank Math, Yoast SEO, SEOPress, WP Mail SMTP, FluentSMTP, LearnDash, Tutor LMS and MemberPress.
+
+Profiles identify the ecosystem and preferred capability categories, then use live discovery and learned manifests rather than assuming undocumented private APIs.
 
 ## Adapter SDK registry
 
