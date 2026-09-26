@@ -384,7 +384,7 @@ class WPCMCP_Server {
     }
 
     private function instructions() {
-        return 'Use read tools to inspect WordPress. Use write tools only when they match an explicit user request. Prefer draft for new content, resolve exact IDs before mutations, and never invoke destructive, permanent-delete, user-role, plugin, theme, settings, order-status or menu-location actions without clear user intent.';
+        return 'Use read tools to inspect WordPress. For plugin-specific work, first detect a dedicated adapter with wordpress.adapter_registry_detect or plan the task with wordpress.adapter_registry_plan; fall back to wordpress.plugin_operator_discover for unfamiliar plugins. Use write tools only when they match an explicit user request. Prefer draft for new content, resolve exact IDs before mutations, and never invoke destructive, permanent-delete, user-role, plugin, theme, settings, order-status or menu-location actions without clear user intent.';
     }
 
     private static function log_summary( $name, array $args, $result ) {
