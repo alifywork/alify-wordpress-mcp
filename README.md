@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.3.0**
+**v2.4.0**
 
 ## Highlights
 
@@ -275,6 +275,26 @@ The manifest records discovered:
 `wordpress.adapter_manifest_learn` can build and save this manifest automatically from the plugin's live registration state.
 
 Saved manifests are injected back into the adapter registry, so later sessions can recognize the plugin without repeating full discovery. Relearning after a major plugin upgrade refreshes the capability map.
+
+## Common plugin operator profiles
+
+The adapter registry now pre-recognizes these additional ecosystems and routes them into the Universal Operator + learned-manifest workflow when no native adapter is present:
+
+- WPForms
+- Fluent Forms
+- Gravity Forms
+- Forminator
+- Ninja Forms
+- Rank Math
+- Yoast SEO
+- SEOPress
+- WP Mail SMTP
+- FluentSMTP
+- LearnDash
+- Tutor LMS
+- MemberPress
+
+These are operator profiles, not a claim that every private plugin API is stable or fully covered. The connector still inspects each installed version's live REST/settings/AJAX/shortcode/content-model surface before mutating it.
 
 ## Destructive-operation safety
 
