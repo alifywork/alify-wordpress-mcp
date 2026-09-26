@@ -35,6 +35,12 @@ class WPCMCP_Adapter_Manifest_Tools {
                 'taxonomies' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
                 'notes' => array( 'type' => 'string' ),
             ), array( 'id', 'name', 'plugin_matches' ), false, false, true );
+            $tools[] = self::t( 'wordpress.adapter_manifest_learn', 'Learn Plugin Adapter Manifest', 'Auto-discover an installed plugin using the Universal Plugin Operator and save a declarative capability manifest for future sessions.', array(
+                'plugin' => array( 'type' => 'string' ),
+                'id' => array( 'type' => 'string' ),
+                'name' => array( 'type' => 'string' ),
+                'confirm' => array( 'type' => 'boolean' ),
+            ), array( 'plugin', 'confirm' ), false, false, true );
             $tools[] = self::t( 'wordpress.adapter_manifest_delete', 'Delete Adapter Manifest', 'Delete one declarative adapter manifest. Requires confirm=true.', array(
                 'id' => array( 'type' => 'string' ),
                 'confirm' => array( 'type' => 'boolean' ),
@@ -53,6 +59,7 @@ class WPCMCP_Adapter_Manifest_Tools {
             case 'wordpress.adapter_manifest_list': return self::list_manifests();
             case 'wordpress.adapter_manifest_get': return self::get_manifest( $args );
             case 'wordpress.adapter_manifest_save': return self::save_manifest( $args );
+            case 'wordpress.adapter_manifest_learn': return self::learn_manifest( $args );
             case 'wordpress.adapter_manifest_delete': return self::delete_manifest( $args );
             default: return null;
         }
@@ -136,6 +143,91 @@ class WPCMCP_Adapter_Manifest_Tools {
         self::save_all( $items );
 
         return self::public_manifest( $manifest );
+    }
+
+    private static function learn_manifest( array $args ) {
+        if ( ! current_user_can( 'manage_options' ) ) return new WP_Error( 'forbidden', 'Learning adapter manifests requires manage_options.' );
+        if ( empty( $args['confirm'] ) ) return new WP_Error( 'confirmation_required', 'Learning and storing an adapter manifest requires confirm=true.' );
+        if ( ! class_exists( 'WPCMCP_Plugin_Operator_Tools' ) || ! class_exists( 'WPCMCP_Universal_Operator_Tools' ) ) {
+            return new WP_Error( 'operator_unavailable', 'Universal Plugin Operator is unavailable.' );
+        }
+
+        $discovery = WPCMCP_Plugin_Operator_Tools::execute(
+            'wordpress.plugin_operator_discover',
+            array( 'plugin' => $args['plugin'] )
+        );
+        if ( is_wp_error( $discovery ) ) return $discovery;
+
+        $settings = WPCMCP_Universal_Operator_Tools::execute(
+            'wordpress.plugin_operator_list_settings',
+            array( 'plugin' => $discovery['plugin'] )
+        );
+        if ( is_wp_error( $settings ) ) $settings = array( 'settings' => array() );
+
+        $ajax = WPCMCP_Universal_Operator_Tools::execute(
+            'wordpress.plugin_operator_list_ajax_actions',
+            array( 'plugin' => $discovery['plugin'] )
+        );
+        if ( is_wp_error( $ajax ) ) $ajax = array( 'actions' => array() );
+
+        $slug = ! empty( $discovery['slug'] ) ? sanitize_key( $discovery['slug'] ) : sanitize_key( basename( $discovery['plugin'], '.php' ) );
+        $id = ! empty( $args['id'] ) ? sanitize_key( $args['id'] ) : $slug;
+        $name = ! empty( $args['name'] ) ? sanitize_text_field( $args['name'] ) : sanitize_text_field( $discovery['name'] );
+
+        $post_types = array();
+        foreach ( get_post_types( array(), 'objects' ) as $post_type ) {
+            if ( false !== strpos( strtolower( $post_type->name ), strtolower( $slug ) ) ) $post_types[] = $post_type->name;
+        }
+
+        $taxonomies = array();
+        foreach ( get_taxonomies( array(), 'objects' ) as $taxonomy ) {
+            if ( false !== strpos( strtolower( $taxonomy->name ), strtolower( $slug ) ) ) $taxonomies[] = $taxonomy->name;
+        }
+
+        $rest_routes = array();
+        foreach ( isset( $discovery['rest_routes'] ) ? (array) $discovery['rest_routes'] : array() as $route ) {
+            if ( ! empty( $route['route'] ) ) $rest_routes[] = $route['route'];
+        }
+
+        $shortcodes = array();
+        foreach ( isset( $discovery['shortcodes'] ) ? (array) $discovery['shortcodes'] : array() as $shortcode ) {
+            if ( ! empty( $shortcode['tag'] ) ) $shortcodes[] = $shortcode['tag'];
+        }
+
+        $setting_names = array();
+        foreach ( isset( $settings['settings'] ) ? (array) $settings['settings'] : array() as $setting ) {
+            if ( ! empty( $setting['option'] ) ) $setting_names[] = $setting['option'];
+        }
+
+        $ajax_actions = array();
+        foreach ( isset( $ajax['actions'] ) ? (array) $ajax['actions'] : array() as $action ) {
+            if ( ! empty( $action['action'] ) ) $ajax_actions[] = $action['action'];
+        }
+
+        $capabilities = array();
+        if ( $rest_routes ) $capabilities[] = 'rest_api';
+        if ( $setting_names ) $capabilities[] = 'registered_settings';
+        if ( $ajax_actions ) $capabilities[] = 'admin_ajax';
+        if ( $shortcodes ) $capabilities[] = 'shortcodes';
+        if ( $post_types ) $capabilities[] = 'post_types';
+        if ( $taxonomies ) $capabilities[] = 'taxonomies';
+
+        return self::save_manifest(
+            array(
+                'id' => $id,
+                'name' => $name,
+                'type' => 'learned_plugin',
+                'plugin_matches' => array( $discovery['plugin'], $slug, $discovery['name'] ),
+                'capabilities' => $capabilities,
+                'rest_routes' => $rest_routes,
+                'settings' => $setting_names,
+                'ajax_actions' => $ajax_actions,
+                'shortcodes' => $shortcodes,
+                'post_types' => $post_types,
+                'taxonomies' => $taxonomies,
+                'notes' => 'Auto-learned from live plugin registration state. Relearn after major plugin upgrades if capabilities change.',
+            )
+        );
     }
 
     private static function delete_manifest( array $args ) {
