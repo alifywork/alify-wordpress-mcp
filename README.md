@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.4.0**
+**v2.4.1**
 
 ## Highlights
 
@@ -295,6 +295,12 @@ The adapter registry now pre-recognizes these additional ecosystems and routes t
 - MemberPress
 
 These are operator profiles, not a claim that every private plugin API is stable or fully covered. The connector still inspects each installed version's live REST/settings/AJAX/shortcode/content-model surface before mutating it.
+
+### MCP connection compatibility
+
+v2.4.1 bounds `tools/list` responses with MCP cursor pagination (50 tools per page by default) so large WordPress installations do not return one oversized discovery payload during connector setup.
+
+The OAuth layer also exposes explicit REST metadata endpoints in addition to the well-known documents, improving diagnostics and compatibility for WordPress installations hosted in subdirectories.
 
 ## Destructive-operation safety
 
