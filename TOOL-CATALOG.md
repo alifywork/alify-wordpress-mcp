@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 1.9.0 — Tool Catalog
+# WP ChatGPT MCP 2.0.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -235,6 +235,18 @@ Theme developer writes require WordPress theme-editing capabilities and file mod
 - `wordpress.adapter_registry_plan`
 
 The registry automatically maps installed plugins/builders to dedicated MCP adapters where one exists, and otherwise returns the Universal Plugin Operator fallback. Additional adapters can be registered through the `wpcmcp_adapter_registry` filter.
+
+## Universal Operator Core v2
+
+- `wordpress.plugin_operator_list_settings`
+- `wordpress.plugin_operator_get_setting`
+- `wordpress.plugin_operator_update_setting`
+- `wordpress.plugin_operator_list_ajax_actions`
+- `wordpress.plugin_operator_call_ajax`
+- `wordpress.plugin_operator_list_admin_pages`
+- `wordpress.plugin_operator_diagnose`
+
+Registered settings are only exposed when attributable to the target plugin; credential-like option names are blocked. Authenticated Admin-AJAX execution invokes only callbacks attributed to the target plugin and does not bypass nonce/capability checks.
 
 ## Universal Plugin Operator
 
