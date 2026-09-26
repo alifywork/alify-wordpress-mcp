@@ -55,6 +55,7 @@ class WPCMCP_Server {
             header( 'Cache-Control: no-store' );
             header( 'X-Content-Type-Options: nosniff' );
             header( 'Vary: Authorization, MCP-Protocol-Version, Mcp-Method, Mcp-Name', false );
+            header( 'Link: <' . WPCMCP_OAuth::protected_metadata_url() . '>; rel="oauth-protected-resource"', false );
         }
         return $served;
     }
@@ -117,16 +118,11 @@ class WPCMCP_Server {
         if ( is_wp_error( $origin ) ) {
             return new WP_REST_Response( array( 'error' => 'invalid_origin', 'error_description' => $origin->get_error_message() ), 403 );
         }
-        return new WP_REST_Response(
-            array(
-                'error'   => 'stream_not_supported',
-                'message' => 'This WordPress MCP server is stateless and does not expose a GET event stream. Use POST requests.',
-                'oauth'   => array(
-                    'protected_resource_metadata' => WPCMCP_OAuth::protected_metadata_url(),
-                ),
-            ),
-            405
-        );
+
+        // ChatGPT may probe the MCP URL with GET/HEAD to determine whether the
+        // server implements OAuth. Advertise OAuth explicitly here while keeping
+        // POST initialize/tools/list available for anonymous discovery.
+        return WPCMCP_OAuth::unauthorized_response( 'OAuth connection is required for protected WordPress tools.' );
     }
 
     public function delete( WP_REST_Request $request ) {
@@ -324,7 +320,12 @@ class WPCMCP_Server {
             $id,
             array(
                 'protocolVersion' => $version,
-                'capabilities'    => array( 'tools' => array( 'listChanged' => false ) ),
+                'capabilities'    => array(
+                    'tools' => array( 'listChanged' => false ),
+                    'experimental' => array(
+                        'oauthProtectedResourceMetadata' => WPCMCP_OAuth::protected_metadata_url(),
+                    ),
+                ),
                 'serverInfo'      => $this->server_info(),
                 'instructions'    => $this->instructions(),
             )
