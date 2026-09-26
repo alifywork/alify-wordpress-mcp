@@ -60,36 +60,11 @@ class WPCMCP_OAuth {
         header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
 
         if ( 'protected' === $kind ) {
-            echo wp_json_encode(
-                array(
-                    'resource'              => self::resource_url(),
-                    'authorization_servers' => array( self::issuer_url() ),
-                    'scopes_supported'      => array( 'wordpress.read', 'wordpress.write' ),
-                    'bearer_methods_supported' => array( 'header' ),
-                    'resource_name'          => get_bloginfo( 'name' ) . ' WordPress MCP',
-                ),
-                JSON_UNESCAPED_SLASHES
-            );
+            echo wp_json_encode( self::protected_resource_metadata_payload(), JSON_UNESCAPED_SLASHES );
             exit;
         }
 
-        echo wp_json_encode(
-            array(
-                'issuer'                                => self::issuer_url(),
-                'authorization_endpoint'                => admin_url( 'admin-post.php?action=wpcmcp_oauth_authorize' ),
-                'token_endpoint'                        => rest_url( 'wp-chatgpt-mcp/v1/oauth/token' ),
-                'registration_endpoint'                 => rest_url( 'wp-chatgpt-mcp/v1/oauth/register' ),
-                'client_id_metadata_document_supported'  => true,
-                'authorization_response_iss_parameter_supported' => true,
-                'response_types_supported'              => array( 'code' ),
-                'grant_types_supported'                 => array( 'authorization_code', 'refresh_token' ),
-                'code_challenge_methods_supported'      => array( 'S256' ),
-                'token_endpoint_auth_methods_supported' => array( 'none' ),
-                'scopes_supported'                      => array( 'wordpress.read', 'wordpress.write' ),
-                'service_documentation'                 => admin_url( 'admin.php?page=wpcmcp' ),
-            ),
-            JSON_UNESCAPED_SLASHES
-        );
+        echo wp_json_encode( self::authorization_server_metadata_payload(), JSON_UNESCAPED_SLASHES );
         exit;
     }
 
@@ -103,6 +78,26 @@ class WPCMCP_OAuth {
     }
 
     public function register_rest_routes() {
+        register_rest_route(
+            'wp-chatgpt-mcp/v1',
+            '/oauth/protected-resource-metadata',
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( $this, 'protected_resource_metadata_rest' ),
+                'permission_callback' => '__return_true',
+            )
+        );
+
+        register_rest_route(
+            'wp-chatgpt-mcp/v1',
+            '/oauth/authorization-server-metadata',
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( $this, 'authorization_server_metadata_rest' ),
+                'permission_callback' => '__return_true',
+            )
+        );
+
         register_rest_route(
             'wp-chatgpt-mcp/v1',
             '/oauth/register',
@@ -122,6 +117,41 @@ class WPCMCP_OAuth {
                 'permission_callback' => '__return_true',
             )
         );
+    }
+
+    private static function protected_resource_metadata_payload() {
+        return array(
+            'resource'                 => self::resource_url(),
+            'authorization_servers'    => array( self::issuer_url() ),
+            'scopes_supported'         => array( 'wordpress.read', 'wordpress.write' ),
+            'bearer_methods_supported' => array( 'header' ),
+            'resource_name'             => get_bloginfo( 'name' ) . ' WordPress MCP',
+        );
+    }
+
+    private static function authorization_server_metadata_payload() {
+        return array(
+            'issuer'                                   => self::issuer_url(),
+            'authorization_endpoint'                   => admin_url( 'admin-post.php?action=wpcmcp_oauth_authorize' ),
+            'token_endpoint'                           => rest_url( 'wp-chatgpt-mcp/v1/oauth/token' ),
+            'registration_endpoint'                    => rest_url( 'wp-chatgpt-mcp/v1/oauth/register' ),
+            'client_id_metadata_document_supported'    => true,
+            'authorization_response_iss_parameter_supported' => true,
+            'response_types_supported'                 => array( 'code' ),
+            'grant_types_supported'                    => array( 'authorization_code', 'refresh_token' ),
+            'code_challenge_methods_supported'         => array( 'S256' ),
+            'token_endpoint_auth_methods_supported'    => array( 'none' ),
+            'scopes_supported'                         => array( 'wordpress.read', 'wordpress.write' ),
+            'service_documentation'                    => admin_url( 'admin.php?page=wpcmcp' ),
+        );
+    }
+
+    public function protected_resource_metadata_rest() {
+        return new WP_REST_Response( self::protected_resource_metadata_payload(), 200 );
+    }
+
+    public function authorization_server_metadata_rest() {
+        return new WP_REST_Response( self::authorization_server_metadata_payload(), 200 );
     }
 
     public function register_client( WP_REST_Request $request ) {
