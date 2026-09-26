@@ -3,7 +3,7 @@
  * Plugin Name: WP ChatGPT MCP
  * Plugin URI: https://alify.site/
  * Description: Connect ChatGPT directly to WordPress through a remote Model Context Protocol (MCP) server with OAuth 2.1-style authorization. No OpenAI API key required.
- * Version: 2.4.1
+ * Version: 2.4.2
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: ALIFY
@@ -16,8 +16,8 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'WPCMCP_VERSION', '2.4.1' );
-define( 'WPCMCP_DB_VERSION', '2.4.1' );
+define( 'WPCMCP_VERSION', '2.4.2' );
+define( 'WPCMCP_DB_VERSION', '2.4.2' );
 define( 'WPCMCP_FILE', __FILE__ );
 define( 'WPCMCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPCMCP_URL', plugin_dir_url( __FILE__ ) );
@@ -72,6 +72,7 @@ final class WPCMCP_Plugin {
         WPCMCP_Permission_Profile_Tools::bootstrap();
         WPCMCP_Adapter_Manifest_Tools::bootstrap();
         WPCMCP_OAuth::instance();
+        add_action( 'init', array( __CLASS__, 'maybe_refresh_rewrites' ), 99 );
         WPCMCP_Server::instance();
 
         if ( is_admin() ) {
@@ -79,11 +80,23 @@ final class WPCMCP_Plugin {
         }
     }
 
+    public static function maybe_refresh_rewrites() {
+        $rewrite_version = (string) get_option( 'wpcmcp_rewrite_version', '' );
+        if ( WPCMCP_VERSION === $rewrite_version ) {
+            return;
+        }
+
+        WPCMCP_OAuth::register_rewrites();
+        flush_rewrite_rules( false );
+        update_option( 'wpcmcp_rewrite_version', WPCMCP_VERSION, false );
+    }
+
     public static function activate() {
         WPCMCP_DB::install();
         WPCMCP_DB::schedule_maintenance();
         WPCMCP_OAuth::register_rewrites();
         flush_rewrite_rules();
+        update_option( 'wpcmcp_rewrite_version', WPCMCP_VERSION, false );
 
         if ( false === get_option( 'wpcmcp_settings', false ) ) {
             add_option(
