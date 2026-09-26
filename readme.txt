@@ -4,7 +4,7 @@ Tags: chatgpt, mcp, model context protocol, wordpress, oauth
 Requires at least: 6.4
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 2.4.0
+Stable tag: 2.4.1
 License: GPLv2 or later
 
 Connect ChatGPT directly to WordPress through a remote MCP server. No OpenAI API key is used by the plugin.
@@ -60,6 +60,11 @@ Use HTTPS, keep write tools disabled when they are not required, and review dest
 * Reverse-proxy/CDN client IP headers are ignored by default. Define `WPCMCP_TRUST_PROXY_HEADERS` as true only when your trusted proxy overwrites `CF-Connecting-IP`, `X-Forwarded-For`, or `X-Real-IP`.
 
 == Changelog ==
+
+= 2.4.1 =
+* Paginated tools/list responses using MCP nextCursor to prevent oversized connection-setup payloads.
+* Added explicit REST endpoints for protected-resource and authorization-server OAuth metadata.
+* Improved subdirectory-install connection diagnostics and compatibility.
 
 = 2.4.0 =
 * Added operator profiles for WPForms, Fluent Forms, Gravity Forms, Forminator and Ninja Forms.
