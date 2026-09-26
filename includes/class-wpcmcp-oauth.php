@@ -140,7 +140,7 @@ class WPCMCP_OAuth {
             'authorization_endpoint'                   => admin_url( 'admin-post.php?action=wpcmcp_oauth_authorize' ),
             'token_endpoint'                           => rest_url( 'wp-chatgpt-mcp/v1/oauth/token' ),
             'registration_endpoint'                    => rest_url( 'wp-chatgpt-mcp/v1/oauth/register' ),
-            'client_id_metadata_document_supported'    => true,
+            'client_id_metadata_document_supported'    => false,
             'authorization_response_iss_parameter_supported' => true,
             'response_types_supported'                 => array( 'code' ),
             'grant_types_supported'                    => array( 'authorization_code', 'refresh_token' ),
@@ -261,8 +261,10 @@ class WPCMCP_OAuth {
             return $row;
         }
 
-        // MCP 2026-07-28 prefers Client ID Metadata Documents (CIMD).
-        if ( 0 === strpos( $client_id, 'https://' ) ) {
+        // CIMD support is retained in code for future opt-in, but v2.4.3 advertises
+        // DCR-first compatibility to avoid requiring outbound access to ChatGPT
+        // client metadata during initial WordPress connector setup.
+        if ( apply_filters( 'wpcmcp_enable_cimd', false ) && 0 === strpos( $client_id, 'https://' ) ) {
             $metadata = $this->fetch_client_metadata_document( $client_id );
             if ( is_wp_error( $metadata ) ) {
                 return null;
