@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.1.0**
+**v2.2.0**
 
 ## Highlights
 
@@ -231,6 +231,32 @@ Safe database diagnostics are now available without exposing arbitrary SQL execu
 - autoload-size report without returning option values
 - orphan metadata counts
 - core expired-transient cleanup with confirmation
+
+## Workflow orchestration
+
+The MCP can validate and execute up to 25 existing MCP tool calls as one sequential workflow.
+
+A workflow can optionally create a rollback snapshot first. When a later step returns an error, the transaction engine can automatically restore the snapshot.
+
+This enables requests such as:
+
+> Install and activate a form plugin, create a form, edit a builder page, add the form, update settings, then verify the site.
+
+Every nested tool still keeps its own capability checks and confirmation requirements.
+
+## Write-only secret vault
+
+API keys and credentials can now be stored encrypted server-side using AES-256-GCM when OpenSSL is available.
+
+Secret values are never returned by read tools. GPT can:
+
+- store/update a named secret
+- list only secret names and metadata
+- check whether a secret exists
+- delete a secret
+- apply a secret directly to an explicit WordPress option without receiving the plaintext back
+
+Encryption keys are derived from WordPress authentication salts and the site URL; raw encryption keys are not stored in the database.
 
 ## Destructive-operation safety
 
