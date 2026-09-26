@@ -47,7 +47,11 @@ class WPCMCP_OAuth {
     }
 
     public static function protected_metadata_url() {
-        return home_url( '/.well-known/oauth-protected-resource' );
+        return rest_url( 'wp-chatgpt-mcp/v1/oauth/protected-resource-metadata' );
+    }
+
+    public static function authorization_metadata_url() {
+        return rest_url( 'wp-chatgpt-mcp/v1/oauth/authorization-server-metadata' );
     }
 
     public function serve_well_known() {
@@ -126,6 +130,7 @@ class WPCMCP_OAuth {
             'scopes_supported'         => array( 'wordpress.read', 'wordpress.write' ),
             'bearer_methods_supported' => array( 'header' ),
             'resource_name'             => get_bloginfo( 'name' ) . ' WordPress MCP',
+            'authorization_server_metadata' => self::authorization_metadata_url(),
         );
     }
 
@@ -147,11 +152,17 @@ class WPCMCP_OAuth {
     }
 
     public function protected_resource_metadata_rest() {
-        return new WP_REST_Response( self::protected_resource_metadata_payload(), 200 );
+        $response = new WP_REST_Response( self::protected_resource_metadata_payload(), 200 );
+        $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+        $response->header( 'Pragma', 'no-cache' );
+        return $response;
     }
 
     public function authorization_server_metadata_rest() {
-        return new WP_REST_Response( self::authorization_server_metadata_payload(), 200 );
+        $response = new WP_REST_Response( self::authorization_server_metadata_payload(), 200 );
+        $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+        $response->header( 'Pragma', 'no-cache' );
+        return $response;
     }
 
     public function register_client( WP_REST_Request $request ) {
