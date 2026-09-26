@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.0.0**
+**v2.1.0**
 
 ## Highlights
 
@@ -184,6 +184,53 @@ New v2 tools include:
 Generic settings access is deliberately restricted to registered settings attributable to the target plugin. Credential/secret-looking options are blocked from the generic settings operator.
 
 Admin-AJAX execution is limited to authenticated `wp_ajax_*` callbacks attributed to the selected plugin. Plugin nonce and capability checks are not bypassed.
+
+## Transaction, rollback & dry-run
+
+The MCP now includes a generic transaction-safety layer for multi-step workflows:
+
+- create rollback snapshots for selected posts and non-secret options
+- preview post/option diffs without writing
+- inspect recent snapshots
+- restore captured state with `confirm=true`
+- delete old snapshots explicitly
+
+This is designed for workflows such as plugin configuration + page edits + builder edits where GPT should establish a recovery point before making changes.
+
+## Cron, webhooks & post-change verification
+
+The MCP can now inspect WP-Cron, run/schedule/unschedule known hooks with confirmation, manage signed outgoing HTTPS webhooks for allowlisted site events, and perform lightweight site-health verification after changes.
+
+Supported webhook events currently include:
+
+- `save_post`
+- `user_register`
+- `comment_post`
+- `woocommerce_order_status_changed`
+
+Webhook deliveries are signed with an HMAC derived from the site's WordPress auth salt. Signing keys are not exposed through MCP.
+
+## Permission profiles
+
+Built-in profiles now control tool exposure on top of OAuth scopes and WordPress capabilities:
+
+- `read_only`
+- `content_manager`
+- `developer`
+- `full_admin`
+
+Profiles never grant WordPress capabilities; they only further restrict which MCP tools are exposed.
+
+## Database diagnostics
+
+Safe database diagnostics are now available without exposing arbitrary SQL execution:
+
+- WordPress-prefixed table inventory and approximate sizes
+- table schema/index inspection
+- heuristic plugin-table discovery
+- autoload-size report without returning option values
+- orphan metadata counts
+- core expired-transient cleanup with confirmation
 
 ## Destructive-operation safety
 
