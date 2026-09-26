@@ -48,6 +48,7 @@ class WPCMCP_Tools {
             'WPCMCP_Database_Diagnostics_Tools',
             'WPCMCP_Workflow_Tools',
             'WPCMCP_Secret_Vault_Tools',
+            'WPCMCP_Adapter_Manifest_Tools',
         );
     }
 
