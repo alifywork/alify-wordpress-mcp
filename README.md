@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.2.0**
+**v2.3.0**
 
 ## Highlights
 
@@ -257,6 +257,24 @@ Secret values are never returned by read tools. GPT can:
 - apply a secret directly to an explicit WordPress option without receiving the plaintext back
 
 Encryption keys are derived from WordPress authentication salts and the site URL; raw encryption keys are not stored in the database.
+
+## Learned adapter manifests
+
+For plugins without a native PHP adapter, GPT can store a declarative capability manifest.
+
+The manifest records discovered:
+
+- REST routes
+- registered settings
+- authenticated Admin-AJAX actions
+- shortcodes
+- post-type hints
+- taxonomy hints
+- capability labels and operator notes
+
+`wordpress.adapter_manifest_learn` can build and save this manifest automatically from the plugin's live registration state.
+
+Saved manifests are injected back into the adapter registry, so later sessions can recognize the plugin without repeating full discovery. Relearning after a major plugin upgrade refreshes the capability map.
 
 ## Destructive-operation safety
 
