@@ -20,7 +20,7 @@ class WPCMCP_Tools {
                 $tools = array_merge( $tools, $class::definitions( $can_read, $can_write ) );
             }
         }
-        return $tools;
+        return apply_filters( 'wpcmcp_tool_definitions', $tools, $can_read, $can_write, $scopes );
     }
 
     private static function extension_classes() {
@@ -42,6 +42,10 @@ class WPCMCP_Tools {
             'WPCMCP_CF7_Tools',
             'WPCMCP_Adapter_Registry',
             'WPCMCP_Universal_Operator_Tools',
+            'WPCMCP_Transaction_Tools',
+            'WPCMCP_Ops_Tools',
+            'WPCMCP_Permission_Profile_Tools',
+            'WPCMCP_Database_Diagnostics_Tools',
         );
     }
 
