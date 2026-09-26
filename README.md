@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.5.0**
+**v2.5.1**
 
 ## Highlights
 
@@ -301,6 +301,10 @@ These are operator profiles, not a claim that every private plugin API is stable
 v2.4.1 bounds `tools/list` responses with MCP cursor pagination (50 tools per page by default) so large WordPress installations do not return one oversized discovery payload during connector setup.
 
 The OAuth layer also exposes explicit REST metadata endpoints in addition to the well-known documents, improving diagnostics and compatibility for WordPress installations hosted in subdirectories.
+
+### OAuth transport detection
+
+v2.5.1 makes GET/HEAD probes on the MCP URL return a 401 Bearer challenge with `resource_metadata`, while POST discovery remains available anonymously. This lets connector-management surfaces detect OAuth without preventing MCP initialize/tool discovery.
 
 ## Connection-first OAuth model
 
