@@ -41,6 +41,7 @@ class WPCMCP_Tools {
             'WPCMCP_Plugin_Operator_Tools',
             'WPCMCP_CF7_Tools',
             'WPCMCP_Adapter_Registry',
+            'WPCMCP_Universal_Operator_Tools',
         );
     }
 
