@@ -40,6 +40,7 @@ class WPCMCP_Tools {
             'WPCMCP_Theme_Developer_Tools',
             'WPCMCP_Plugin_Operator_Tools',
             'WPCMCP_CF7_Tools',
+            'WPCMCP_Adapter_Registry',
         );
     }
 
