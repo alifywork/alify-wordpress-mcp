@@ -4,7 +4,7 @@ Production-ready WordPress plugin by [ALIFY](https://alify.site/) for connecting
 
 ## Current release
 
-**v2.4.2**
+**v2.5.0**
 
 ## Highlights
 
@@ -301,6 +301,12 @@ These are operator profiles, not a claim that every private plugin API is stable
 v2.4.1 bounds `tools/list` responses with MCP cursor pagination (50 tools per page by default) so large WordPress installations do not return one oversized discovery payload during connector setup.
 
 The OAuth layer also exposes explicit REST metadata endpoints in addition to the well-known documents, improving diagnostics and compatibility for WordPress installations hosted in subdirectories.
+
+## Connection-first OAuth model
+
+v2.5.0 allows MCP connection discovery before OAuth. `initialize`, `ping`, and `tools/list` can complete without an access token, while every listed tool declares an OAuth `securitySchemes` policy.
+
+When ChatGPT invokes a protected tool without a token, the server returns `_meta["mcp/www_authenticate"]` with the protected-resource metadata URL. This lets ChatGPT add the server first and launch the WordPress OAuth consent flow when authentication is actually needed.
 
 ## Destructive-operation safety
 
