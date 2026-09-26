@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 2.1.0 — Tool Catalog
+# WP ChatGPT MCP 2.2.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -235,6 +235,23 @@ Theme developer writes require WordPress theme-editing capabilities and file mod
 - `wordpress.adapter_registry_plan`
 
 The registry automatically maps installed plugins/builders to dedicated MCP adapters where one exists, and otherwise returns the Universal Plugin Operator fallback. Additional adapters can be registered through the `wpcmcp_adapter_registry` filter.
+
+## Workflow orchestration
+
+- `wordpress.workflow_validate`
+- `wordpress.workflow_execute`
+
+Workflow execution supports optional transaction snapshots and rollback-on-error. Nested tools keep their own schemas, WordPress capability checks and confirmation requirements.
+
+## Secret vault
+
+- `wordpress.secret_vault_list`
+- `wordpress.secret_vault_has`
+- `wordpress.secret_vault_set`
+- `wordpress.secret_vault_delete`
+- `wordpress.secret_vault_apply_option`
+
+Secret values are write-only through MCP and are never returned.
 
 ## Transaction safety
 
