@@ -3,7 +3,7 @@
  * Plugin Name: WP ChatGPT MCP
  * Plugin URI: https://alify.site/
  * Description: Connect ChatGPT directly to WordPress through a remote Model Context Protocol (MCP) server with OAuth 2.1-style authorization. No OpenAI API key required.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: ALIFY
@@ -16,8 +16,8 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'WPCMCP_VERSION', '2.0.0' );
-define( 'WPCMCP_DB_VERSION', '2.0.0' );
+define( 'WPCMCP_VERSION', '2.1.0' );
+define( 'WPCMCP_DB_VERSION', '2.1.0' );
 define( 'WPCMCP_FILE', __FILE__ );
 define( 'WPCMCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPCMCP_URL', plugin_dir_url( __FILE__ ) );
@@ -42,6 +42,10 @@ require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-plugin-operator-tools.php
 require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-cf7-tools.php';
 require_once WPCMCP_DIR . 'includes/class-wpcmcp-adapter-registry.php';
 require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-universal-operator-tools.php';
+require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-transaction-tools.php';
+require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-ops-tools.php';
+require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-permission-profile-tools.php';
+require_once WPCMCP_DIR . 'includes/tools/class-wpcmcp-database-diagnostics-tools.php';
 require_once WPCMCP_DIR . 'includes/class-wpcmcp-server.php';
 require_once WPCMCP_DIR . 'admin/class-wpcmcp-admin.php';
 
@@ -61,6 +65,8 @@ final class WPCMCP_Plugin {
         WPCMCP_DB::schedule_maintenance();
         WPCMCP_Structure_Tools::bootstrap();
         WPCMCP_ACF_Pro_Tools::bootstrap();
+        WPCMCP_Ops_Tools::bootstrap();
+        WPCMCP_Permission_Profile_Tools::bootstrap();
         WPCMCP_OAuth::instance();
         WPCMCP_Server::instance();
 
