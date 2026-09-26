@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 1.8.0 — Tool Catalog
+# WP ChatGPT MCP 1.9.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -227,6 +227,14 @@ Elementor data is managed through Elementor's document/widget APIs. Whole-docume
 - `wordpress.theme_dev_delete_file`
 
 Theme developer writes require WordPress theme-editing capabilities and file modifications to be enabled. New files never overwrite existing files. Existing-file updates/deletes require the latest SHA-256 from a prior read, and destructive operations require `confirm=true`.
+
+## Adapter SDK registry
+
+- `wordpress.adapter_registry_list`
+- `wordpress.adapter_registry_detect`
+- `wordpress.adapter_registry_plan`
+
+The registry automatically maps installed plugins/builders to dedicated MCP adapters where one exists, and otherwise returns the Universal Plugin Operator fallback. Additional adapters can be registered through the `wpcmcp_adapter_registry` filter.
 
 ## Universal Plugin Operator
 
