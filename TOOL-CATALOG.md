@@ -1,4 +1,4 @@
-# WP ChatGPT MCP 2.0.0 — Tool Catalog
+# WP ChatGPT MCP 2.1.0 — Tool Catalog
 
 Tools are exposed only when the matching OAuth scope and the **Read tools** or **Write tools** setting is enabled. Every operation also checks the authenticated WordPress user's native capabilities.
 
@@ -235,6 +235,45 @@ Theme developer writes require WordPress theme-editing capabilities and file mod
 - `wordpress.adapter_registry_plan`
 
 The registry automatically maps installed plugins/builders to dedicated MCP adapters where one exists, and otherwise returns the Universal Plugin Operator fallback. Additional adapters can be registered through the `wpcmcp_adapter_registry` filter.
+
+## Transaction safety
+
+- `wordpress.transaction_list_snapshots`
+- `wordpress.transaction_get_snapshot`
+- `wordpress.transaction_diff`
+- `wordpress.transaction_create_snapshot`
+- `wordpress.transaction_rollback`
+- `wordpress.transaction_delete_snapshot`
+
+## Cron, webhooks and health
+
+- `wordpress.cron_list_events`
+- `wordpress.cron_run_event`
+- `wordpress.cron_schedule_event`
+- `wordpress.cron_unschedule_event`
+- `wordpress.webhook_list`
+- `wordpress.webhook_create`
+- `wordpress.webhook_update`
+- `wordpress.webhook_delete`
+- `wordpress.webhook_test`
+- `wordpress.site_health_verify`
+
+## Permission profiles
+
+- `wordpress.permission_profile_get`
+- `wordpress.permission_profile_list`
+- `wordpress.permission_profile_set`
+
+## Database diagnostics
+
+- `wordpress.db_list_tables`
+- `wordpress.db_describe_table`
+- `wordpress.db_plugin_tables`
+- `wordpress.db_autoload_report`
+- `wordpress.db_orphan_report`
+- `wordpress.db_cleanup_expired_transients`
+
+No arbitrary SQL execution is exposed.
 
 ## Universal Operator Core v2
 
